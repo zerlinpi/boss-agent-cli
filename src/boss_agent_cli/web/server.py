@@ -18,6 +18,12 @@ from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleErro
 from boss_agent_cli.web.tasks import TaskManager
 
 MAX_JSON_BODY = 32 * 1024 * 1024
+_ASSET_TYPES = {
+	"index.html": "text/html; charset=utf-8",
+	"app.js": "text/javascript; charset=utf-8",
+	"styles.css": "text/css; charset=utf-8",
+}
+_ASYNC_PATHS = {"/api/auth/login", "/api/screen/local", "/api/screen/boss"}
 
 
 class RecruiterWebApplication:
@@ -32,15 +38,10 @@ class RecruiterWebApplication:
 		asset = files("boss_agent_cli.web.assets").joinpath(name)
 		if not asset.is_file():
 			raise FileNotFoundError(name)
-		content_type = {
-			"index.html": "text/html; charset=utf-8",
-			"app.js": "text/javascript; charset=utf-8",
-			"styles.css": "text/css; charset=utf-8",
-		}.get(name, "application/octet-stream")
 		content = asset.read_bytes()
 		if name in {"index.html", "app.js"}:
 			content = content.replace(b"__BOSS_WEB_TOKEN__", self.token.encode("utf-8"))
-		return content, content_type
+		return content, _ASSET_TYPES.get(name, "application/octet-stream")
 
 	def authorized(self, handler: BaseHTTPRequestHandler) -> bool:
 		return secrets.compare_digest(handler.headers.get("X-Boss-Web-Token", ""), self.token)
@@ -53,14 +54,14 @@ class RecruiterWebApplication:
 		if path.startswith("/api/jobs/"):
 			return self.controller.get_job(unquote(path.removeprefix("/api/jobs/")))
 		if path == "/api/candidates":
-			job_key = _query_one(query, "job_key")
-			return self.controller.candidates(job_key, top=_query_int(query, "top", 200))
+			return self.controller.candidates(
+				_query_one(query, "job_key"), top=_query_int(query, "top", 200),
+			)
 		if path.startswith("/api/candidates/"):
 			return self.controller.candidate_detail(unquote(path.removeprefix("/api/candidates/")))
 		if path == "/api/report":
 			return self.controller.report(
-				_query_one(query, "job_key"),
-				top=_query_int(query, "top", 10),
+				_query_one(query, "job_key"), top=_query_int(query, "top", 10),
 			)
 		if path == "/api/replies":
 			return {"items": self.controller.replies(
@@ -94,13 +95,11 @@ class RecruiterWebApplication:
 			))
 		if path == "/api/screen/local":
 			return self.tasks.submit(
-				"screen-local",
-				lambda progress: self.controller.screen_local(payload, progress=progress),
+				"screen-local", lambda progress: self.controller.screen_local(payload, progress=progress),
 			)
 		if path == "/api/screen/boss":
 			return self.tasks.submit(
-				"screen-boss",
-				lambda progress: self.controller.screen_boss(payload, progress=progress),
+				"screen-boss", lambda progress: self.controller.screen_boss(payload, progress=progress),
 			)
 		if path == "/api/replies":
 			return self.controller.generate_reply(payload)
@@ -122,14 +121,9 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 
 	def do_GET(self) -> None:  # noqa: N802
 		parsed = urlparse(self.path)
-		if parsed.path in {"/", "/index.html"}:
-			self._send_asset("index.html")
-			return
-		if parsed.path == "/app.js":
-			self._send_asset("app.js")
-			return
-		if parsed.path == "/styles.css":
-			self._send_asset("styles.css")
+		assets = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}
+		if parsed.path in assets:
+			self._send_asset(assets[parsed.path])
 			return
 		if parsed.path == "/favicon.ico":
 			self.send_response(HTTPStatus.NO_CONTENT)
@@ -138,12 +132,10 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 		if not parsed.path.startswith("/api/"):
 			self._send_error(WebConsoleError("NOT_FOUND", "页面不存在", status=404))
 			return
-		if not self.application.authorized(self):
-			self._send_error(WebConsoleError("UNAUTHORIZED", "本地控制台令牌无效", status=401))
+		if not self._require_authorized():
 			return
 		try:
-			payload = self.application.get(parsed.path, parse_qs(parsed.query))
-			self._send_json(payload)
+			self._send_json(self.application.get(parsed.path, parse_qs(parsed.query)))
 		except WebConsoleError as exc:
 			self._send_error(exc)
 		except Exception as exc:
@@ -154,21 +146,24 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 		if not parsed.path.startswith("/api/"):
 			self._send_error(WebConsoleError("NOT_FOUND", "接口不存在", status=404))
 			return
-		if not self.application.authorized(self):
-			self._send_error(WebConsoleError("UNAUTHORIZED", "本地控制台令牌无效", status=401))
+		if not self._require_authorized():
 			return
 		try:
-			payload = self._read_json()
-			result = self.application.post(parsed.path, payload)
-			self._send_json(result, status=HTTPStatus.ACCEPTED if parsed.path in {
-				"/api/auth/login", "/api/screen/local", "/api/screen/boss",
-			} else HTTPStatus.OK)
+			result = self.application.post(parsed.path, self._read_json())
+			status = HTTPStatus.ACCEPTED if parsed.path in _ASYNC_PATHS else HTTPStatus.OK
+			self._send_json(result, status=status)
 		except WebConsoleError as exc:
 			self._send_error(exc)
 		except (TypeError, ValueError, json.JSONDecodeError) as exc:
 			self._send_error(WebConsoleError("INVALID_JSON", str(exc), status=400))
 		except Exception as exc:
 			self._send_error(WebConsoleError("INTERNAL_ERROR", str(exc), status=500))
+
+	def _require_authorized(self) -> bool:
+		if self.application.authorized(self):
+			return True
+		self._send_error(WebConsoleError("UNAUTHORIZED", "本地控制台令牌无效", status=401))
+		return False
 
 	def _read_json(self) -> dict[str, Any]:
 		length = int(self.headers.get("Content-Length", "0"))
@@ -194,7 +189,7 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 		self.send_header("X-Content-Type-Options", "nosniff")
 		self.send_header(
 			"Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
 		)
 		self.end_headers()
 		self.wfile.write(content)
@@ -256,8 +251,7 @@ def build_server(
 		pass
 
 	Handler.application = application
-	server = ThreadingHTTPServer((host, port), Handler)
-	return server, application
+	return ThreadingHTTPServer((host, port), Handler), application
 
 
 def main(argv: list[str] | None = None) -> None:
