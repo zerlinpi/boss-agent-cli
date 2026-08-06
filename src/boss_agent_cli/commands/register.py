@@ -40,6 +40,7 @@ from boss_agent_cli.commands import (
 	status,
 	watch,
 )
+from boss_agent_cli.commands.recruiter import ai as recruiter_ai
 from boss_agent_cli.commands.recruiter import applications as recruiter_applications
 from boss_agent_cli.commands.recruiter import candidates as recruiter_candidates
 from boss_agent_cli.commands.recruiter import chat as recruiter_chat
@@ -118,6 +119,7 @@ def hr_group(ctx: click.Context) -> None:
 def register_recruiter_commands(cli: click.Group) -> None:
 	"""Register recruiter shortcut commands."""
 	cli.add_command(hr_group, "hr")
+	hr_group.add_command(recruiter_ai.ai_group, "ai")
 	hr_group.add_command(recruiter_applications.applications_cmd, "applications")
 	hr_group.add_command(recruiter_resume.resume_cmd, "resume")
 	hr_group.add_command(recruiter_chat.recruiter_chat_cmd, "chat")
