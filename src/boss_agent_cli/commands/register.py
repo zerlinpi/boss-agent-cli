@@ -116,10 +116,28 @@ def hr_group(ctx: click.Context) -> None:
 		raise SystemExit(1)
 
 
+def _register_recruiter_ai_schema() -> None:
+	"""Advertise the nested recruiter AI workflow in the static schema catalogue."""
+	commands = schema.SCHEMA_DATA.get("commands")
+	if not isinstance(commands, dict):
+		return
+	hr_spec = commands.get("hr")
+	if not isinstance(hr_spec, dict):
+		return
+	subcommands = hr_spec.get("subcommands")
+	if not isinstance(subcommands, dict):
+		return
+	subcommands["ai"] = (
+		"本地招聘 AI 工作台：configure/jobs/evaluate/evaluate-geek/screen/"
+		"screen-applications/rank/report/mark/reply；只生成辅助评分和回复草稿，"
+		"不自动录用、淘汰或发送消息"
+	)
+
+
 def register_recruiter_commands(cli: click.Group) -> None:
 	"""Register recruiter shortcut commands."""
+	_register_recruiter_ai_schema()
 	cli.add_command(hr_group, "hr")
-	hr_group.add_command(recruiter_ai.ai_group, "ai")
 	hr_group.add_command(recruiter_applications.applications_cmd, "applications")
 	hr_group.add_command(recruiter_resume.resume_cmd, "resume")
 	hr_group.add_command(recruiter_chat.recruiter_chat_cmd, "chat")
@@ -129,3 +147,4 @@ def register_recruiter_commands(cli: click.Group) -> None:
 	hr_group.add_command(recruiter_candidates.candidates_cmd, "candidates")
 	hr_group.add_command(recruiter_reply.reply_cmd, "reply")
 	hr_group.add_command(recruiter_request_resume.request_resume_cmd, "request-resume")
+	hr_group.add_command(recruiter_ai.ai_group, "ai")
