@@ -1,13 +1,15 @@
 @echo off
 setlocal
 set "ROOT=%~dp0"
-if exist "%ROOT%.venv\Scripts\pythonw.exe" (
-	start "" "%ROOT%.venv\Scripts\pythonw.exe" "%ROOT%start-recruiter-web.pyw"
-	exit /b 0
+title BOSS Recruit AI
+cd /d "%ROOT%"
+if exist "%ROOT%.venv\Scripts\python.exe" (
+	"%ROOT%.venv\Scripts\python.exe" "%ROOT%start-recruiter-web.pyw"
+	exit /b %errorlevel%
 )
-where pyw >nul 2>nul
+where py >nul 2>nul
 if %errorlevel%==0 (
-	start "" pyw "%ROOT%start-recruiter-web.pyw"
-	exit /b 0
+	py "%ROOT%start-recruiter-web.pyw"
+	exit /b %errorlevel%
 )
-start "" pythonw "%ROOT%start-recruiter-web.pyw"
+python "%ROOT%start-recruiter-web.pyw"
