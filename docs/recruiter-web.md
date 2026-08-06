@@ -12,11 +12,11 @@
 start-recruiter-web.bat
 ```
 
-也可以双击 `start-recruiter-web.pyw`。启动器会优先使用仓库 `.venv` 中的 Python，并自动打开浏览器。
+启动器会优先使用仓库 `.venv` 中的 Python，并自动打开浏览器。运行期间会保留一个最小服务窗口；关闭该窗口即可停止控制台。
 
 ### macOS
 
-运行 `start-recruiter-web.command`，或使用 `python -m boss_agent_cli.web`。
+运行 `start-recruiter-web.command`。首次运行时，macOS 可能要求在“隐私与安全性”中确认打开。
 
 默认地址为 `http://127.0.0.1:8765/`。服务只监听本机回环地址，并为 API 请求生成随机会话令牌。
 
