@@ -14,6 +14,8 @@ from boss_agent_cli.web import controller as controller_module
 
 _MANAGER_INSTALLED = False
 _SERVER_INSTALLED = False
+_MAX_ACTIVE_TASKS = 20
+_ACTIVE_TASK_STATUSES = {"queued", "running", "cancelling"}
 
 
 class TaskCancelledError(RuntimeError):
@@ -26,7 +28,7 @@ class TaskCancelledError(RuntimeError):
 
 
 def install_task_manager_controls(tasks_module: Any) -> None:
-	"""Add queued cancellation and cooperative running cancellation to TaskManager."""
+	"""Add bounded queueing and cooperative cancellation to TaskManager."""
 	global _MANAGER_INSTALLED
 	if _MANAGER_INSTALLED:
 		return
@@ -87,8 +89,6 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		metadata: dict[str, Any] | None = None,
 	) -> dict[str, Any]:
 		ensure_state(self)
-		if self._boss_closed:
-			raise RuntimeError("任务管理器已关闭")
 		task_id = f"task_{uuid4().hex[:12]}"
 		task = {
 			"id": task_id,
@@ -104,11 +104,35 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		}
 		event = Event()
 		with self._lock:
+			if self._boss_closed:
+				raise controller_module.WebConsoleError("TASK_MANAGER_CLOSED", "任务管理器已关闭", status=503)
+			active_count = sum(
+				1 for item in self._tasks.values()
+				if item.get("status") in _ACTIVE_TASK_STATUSES
+			)
+			if active_count >= _MAX_ACTIVE_TASKS:
+				raise controller_module.WebConsoleError(
+					"TASK_QUEUE_FULL",
+					f"后台任务已达到 {_MAX_ACTIVE_TASKS} 个上限，请取消或等待现有任务完成",
+					status=429,
+				)
 			self._tasks[task_id] = task
 			self._boss_cancel_events[task_id] = event
 			self._persist(task)
 			self._prune_locked()
-		future = self._executor.submit(self._run, task_id, function)
+		try:
+			future = self._executor.submit(self._run, task_id, function)
+		except RuntimeError as exc:
+			with self._lock:
+				task.update({
+					"status": "failed",
+					"message": "后台任务提交失败",
+					"error": {"code": "TASK_SUBMIT_FAILED", "message": str(exc)},
+					"updated_at": tasks_module._now(),
+				})
+				self._persist(task)
+				self._boss_cancel_events.pop(task_id, None)
+			return deepcopy(task)
 		with self._lock:
 			self._boss_futures[task_id] = future
 			if event.is_set():
@@ -189,7 +213,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		ensure_state(self)
 		with self._lock:
 			for task in self._tasks.values():
-				if task.get("status") not in {"queued", "running", "cancelling"}:
+				if task.get("status") not in _ACTIVE_TASK_STATUSES:
 					continue
 				if task.get("kind") not in {"screen-local", "screen-boss"}:
 					continue
@@ -224,7 +248,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		with self._lock:
 			self._boss_closed = True
 			for task_id, task in self._tasks.items():
-				if task.get("status") not in {"queued", "running", "cancelling"}:
+				if task.get("status") not in _ACTIVE_TASK_STATUSES:
 					continue
 				event = self._boss_cancel_events.setdefault(task_id, Event())
 				event.set()
