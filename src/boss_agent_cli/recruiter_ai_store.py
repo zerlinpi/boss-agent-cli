@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, cast
@@ -21,20 +22,27 @@ from boss_agent_cli.recruiter_ai_models import (
 	rubric_fingerprint,
 )
 
+_WINDOWS_DEVICE_NAME = re.compile(r"^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$", re.IGNORECASE)
+_WINDOWS_INVALID_CHARS = set('<>:"/\\|?*')
+
 
 def _utc_now() -> str:
 	return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_storage_key(value: str, *, label: str, max_length: int = 160) -> str:
-	"""Reject path traversal while allowing human-readable local keys such as Chinese job names."""
+	"""Reject traversal and cross-platform-invalid filenames while retaining readable Unicode keys."""
 	key = value.strip()
 	if not key:
 		raise RecruiterAIError(f"{label} 不能为空")
 	if len(key) > max_length:
 		raise RecruiterAIError(f"{label} 过长")
-	if key in {".", ".."} or "/" in key or "\\" in key or "\x00" in key:
+	if key in {".", ".."} or key.endswith("."):
 		raise RecruiterAIError(f"{label} 包含非法路径字符")
+	if any(char in _WINDOWS_INVALID_CHARS or ord(char) < 32 for char in key):
+		raise RecruiterAIError(f"{label} 包含非法路径字符")
+	if _WINDOWS_DEVICE_NAME.fullmatch(key):
+		raise RecruiterAIError(f"{label} 使用了 Windows 保留文件名")
 	return key
 
 
@@ -56,9 +64,13 @@ class RecruiterAIStore:
 
 	@staticmethod
 	def _write(path: Path, payload: dict[str, Any]) -> None:
-		temporary = path.with_suffix(path.suffix + ".tmp")
-		temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-		temporary.replace(path)
+		# A unique temporary file prevents concurrent writes to the same record from racing on one `.tmp` path.
+		temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+		try:
+			temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+			temporary.replace(path)
+		finally:
+			temporary.unlink(missing_ok=True)
 
 	def save_job(
 		self,
