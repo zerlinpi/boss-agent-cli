@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 
 from boss_agent_cli.recruiter_ai import normalize_rubric
-from boss_agent_cli.web import RecruiterWebController, build_server
+from boss_agent_cli.web import RecruiterWebController, WebConsoleError, build_server
 from boss_agent_cli.web import controller as controller_module
 
 
@@ -42,7 +42,7 @@ def test_all_unchanged_local_screen_does_not_require_ai_configuration(tmp_path):
 	assert result["failed_count"] == 0
 
 
-def test_analytics_accepts_legacy_naive_timestamp(tmp_path):
+def test_analytics_accepts_legacy_naive_timestamp_and_ignores_non_finite_metrics(tmp_path):
 	controller = RecruiterWebController(tmp_path)
 	job = _job(controller)
 	record = controller.store.save_evaluation(
@@ -58,11 +58,21 @@ def test_analytics_accepts_legacy_naive_timestamp(tmp_path):
 	stored["created_at"] = datetime.now().replace(microsecond=0).isoformat()
 	path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
 
+	controller.store.save_evaluation(
+		job_key="python",
+		jd_text=job["jd_text"],
+		resume={"name": "Legacy"},
+		evaluation={"total_score": float("nan"), "recommendation": "manual_review", "confidence": float("inf")},
+		source={"type": "test", "candidate_id": "legacy"},
+		rubric=normalize_rubric(job["rubric"]),
+	)
+
 	analytics = controller.analytics("python")
 
-	assert analytics["total"] == 1
-	assert analytics["recent_7d"] == 1
+	assert analytics["total"] == 2
+	assert analytics["recent_7d"] == 2
 	assert analytics["average_score"] == 88
+	assert analytics["average_confidence"] == 0.9
 
 
 def test_malformed_friend_id_is_ignored_instead_of_crashing_chat_batch():
@@ -77,6 +87,40 @@ def test_malformed_friend_id_is_ignored_instead_of_crashing_chat_batch():
 
 	assert malformed["friend_id"] is None
 	assert valid["friend_id"] == 123
+
+
+def test_screen_boss_rejects_invalid_numeric_and_boolean_inputs_before_platform_access(tmp_path):
+	controller = RecruiterWebController(tmp_path)
+	_job(controller)
+	base = {"job_key": "python", "job_id": "boss-1"}
+
+	for field, value in (("pages", "many"), ("limit", 0), ("draft_top", 21), ("force", "sometimes")):
+		payload = {**base, field: value}
+		with pytest.raises(WebConsoleError) as caught:
+			controller.screen_boss(payload)
+		assert caught.value.code == "INVALID_PARAM"
+
+
+def test_generate_reply_rejects_unknown_intent_and_oversized_conversation(tmp_path):
+	controller = RecruiterWebController(tmp_path)
+
+	with pytest.raises(WebConsoleError) as caught:
+		controller.generate_reply({"evaluation_id": "eval_missing", "intent": "auto_hire"})
+	assert caught.value.code == "INVALID_REPLY_INPUT"
+
+	with pytest.raises(WebConsoleError) as caught:
+		controller.generate_reply({
+			"evaluation_id": "eval_missing",
+			"intent": "auto",
+			"conversation": "x" * 200_001,
+		})
+	assert caught.value.code == "INVALID_REPLY_INPUT"
+
+
+def test_replies_limit_is_bounded_and_invalid_limit_falls_back(tmp_path):
+	controller = RecruiterWebController(tmp_path)
+	assert controller.replies(limit=-1) == []
+	assert controller.replies(limit="invalid") == []  # type: ignore[arg-type]
 
 
 def test_native_web_rejects_invalid_explicit_ports(tmp_path):
