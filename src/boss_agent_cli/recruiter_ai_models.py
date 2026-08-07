@@ -44,6 +44,17 @@ _JOB_KEYS = ("jobId", "job_id", "encJobId", "encryptJobId")
 _FRIEND_KEYS = ("friendId", "friend_id", "uid", "gid")
 _NAME_KEYS = ("name", "geekName", "candidateName")
 _LIST_KEYS = ("friendList", "geekList", "applications", "items", "list", "result")
+_PROTECTED_RUBRIC_PATTERN = re.compile(
+	r"年龄|出生日期|生日|性别|男性|女性|男生|女生|婚姻|婚育|已婚|未婚|怀孕|孕期|生育|"
+	r"家庭情况|孩子|民族|种族|国籍|宗教|政治面貌|政治身份|党派|党员|户籍|户口|籍贯|"
+	r"身体健康|健康状况|病史|疾病|残疾|残障|照片|相貌|颜值|身高|体重|性取向|"
+	r"\bage\b|\bgender\b|\bsex\b|\bmale\b|\bfemale\b|marital\s*(?:status)?|marriage|"
+	r"pregnan\w*|fertility|family\s*status|\brace\b|ethnicity|nationality|religion|religious|"
+	r"political\s*(?:status|affiliation)|party\s*membership|disabilit\w*|health\s*status|"
+	r"medical\s*(?:condition|history)|sexual\s*orientation|veteran\s*status|\bheight\b|\bweight\b|"
+	r"appearance|\bphoto\b",
+	re.IGNORECASE,
+)
 
 
 class RecruiterAIError(ValueError):
@@ -232,8 +243,20 @@ def _max_questions(value: Any) -> int:
 	return max(1, min(10, int(number)))
 
 
+def _rubric_text(value: str) -> str:
+	text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", value)
+	return re.sub(r"[_\-]+", " ", text)
+
+
+def _reject_protected_rubric_text(value: str, *, label: str) -> None:
+	if value and _PROTECTED_RUBRIC_PATTERN.search(_rubric_text(value)):
+		raise RecruiterAIError(
+			f"{label} 不能使用年龄、性别、婚育、民族/种族、宗教、健康/残障、政治身份等个人属性"
+		)
+
+
 def normalize_rubric(payload: dict[str, Any] | None = None) -> dict[str, Any]:
-	"""Normalize a configurable scoring rubric into a strict local contract."""
+	"""Normalize a configurable scoring rubric into a job-relevant, protected-trait-free contract."""
 	payload = payload or {}
 	dimensions_input = payload.get("dimensions", list(DEFAULT_DIMENSIONS))
 	if not isinstance(dimensions_input, list) or not dimensions_input:
@@ -246,12 +269,14 @@ def normalize_rubric(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 		name = str(item.get("name", "")).strip()
 		if not name or name in seen:
 			raise RecruiterAIError("评分维度 name 不能为空且不能重复")
+		description = str(item.get("description", "")).strip()
+		_reject_protected_rubric_text(f"{name} {description}", label=f"评分维度 {name}")
 		max_score = _positive_integer(item.get("max_score"), label=f"评分维度 {name} 的 max_score")
 		seen.add(name)
 		dimensions.append({
 			"name": name,
 			"max_score": max_score,
-			"description": str(item.get("description", "")).strip(),
+			"description": description,
 		})
 
 	thresholds = dict(DEFAULT_THRESHOLDS)
@@ -280,15 +305,18 @@ def normalize_rubric(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 			required = bool(item.get("required", True))
 		if not requirement or requirement in seen_hard:
 			continue
+		_reject_protected_rubric_text(requirement, label="硬性要求")
 		seen_hard.add(requirement)
 		normalized_hard.append({"requirement": requirement, "required": required})
 
+	instructions = str(payload.get("instructions", "")).strip()
+	_reject_protected_rubric_text(instructions, label="评分规则 instructions")
 	return {
 		"version": str(payload.get("version") or "1"),
 		"dimensions": dimensions,
 		"thresholds": thresholds,
 		"hard_requirements": normalized_hard,
-		"instructions": str(payload.get("instructions", "")).strip(),
+		"instructions": instructions,
 		"max_questions": _max_questions(payload.get("max_questions", 4)),
 	}
 
