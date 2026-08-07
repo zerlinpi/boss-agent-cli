@@ -56,6 +56,7 @@ def test_create_portable_bundle_includes_installer_docs_and_wheel(tmp_path: Path
 	assert (result.bundle_dir / "install.sh").exists()
 	assert (result.bundle_dir / "bin" / "boss").exists()
 	assert (result.bundle_dir / "bin" / "boss-doctor").exists()
+	assert (result.bundle_dir / "bin" / "boss-recruit-web").exists()
 	assert (result.bundle_dir / "README-PORTABLE.md").exists()
 	assert (result.bundle_dir / "examples" / "opencode.json").exists()
 	assert (result.bundle_dir / "examples" / "zhilian-recruiter.sh").exists()
@@ -65,6 +66,12 @@ def test_create_portable_bundle_includes_installer_docs_and_wheel(tmp_path: Path
 	assert "uv tool install --force" in install
 	assert "BOSS_AGENT_INSTALL_BROWSER" in install
 	assert "patchright install chromium" in install
+	assert "boss-recruit-web" in install
+
+	portable_readme = (result.bundle_dir / "README-PORTABLE.md").read_text(encoding="utf-8")
+	assert "boss-recruit-web" in portable_readme
+	assert "http://127.0.0.1:8765/" in portable_readme
+
 	opencode = (result.bundle_dir / "examples" / "opencode.json").read_text(encoding="utf-8")
 	assert '"boss-mcp"' in opencode
 	assert '"--data-dir"' in opencode
@@ -73,5 +80,6 @@ def test_create_portable_bundle_includes_installer_docs_and_wheel(tmp_path: Path
 		names = set(archive.namelist())
 	assert any(name.endswith("/install.sh") for name in names)
 	assert any(name.endswith(f"/wheels/{wheel.name}") for name in names)
+	assert any(name.endswith("/bin/boss-recruit-web") for name in names)
 	assert any(name.endswith("/examples/local-model.sh") for name in names)
 	assert any(name.endswith("/examples/opencode.json") for name in names)
