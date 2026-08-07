@@ -74,6 +74,36 @@ def test_re_evaluation_preserves_note_while_candidate_is_still_new(tmp_path: Pat
 	assert second["status_note"] == "等待业务负责人补充岗位要求"
 
 
+def test_marking_historical_version_updates_current_candidate_state(tmp_path: Path) -> None:
+	store = RecruiterAIStore(tmp_path)
+	rubric = normalize_rubric()
+	source = {"type": "zhipin", "geek_id": "g1"}
+	first = store.save_evaluation(
+		job_key="java",
+		jd_text="JD",
+		resume={"basic": {"name": "候选人A"}, "raw_text": "version one"},
+		evaluation=_evaluation(70),
+		source=source,
+		rubric=rubric,
+	)
+	second = store.save_evaluation(
+		job_key="java",
+		jd_text="JD",
+		resume={"basic": {"name": "候选人A"}, "raw_text": "version two"},
+		evaluation=_evaluation(85),
+		source=source,
+		rubric=rubric,
+	)
+
+	store.set_status(first["id"], "shortlisted", note="业务负责人已确认")
+
+	assert store.get_evaluation(first["id"])["status"] == "shortlisted"
+	latest_record = store.get_evaluation(second["id"])
+	assert latest_record["status"] == "shortlisted"
+	assert latest_record["status_note"] == "业务负责人已确认"
+	assert store.report(job_key="java")["status_counts"]["shortlisted"] == 1
+
+
 def test_legacy_local_content_keys_are_canonicalized_by_source_path(tmp_path: Path) -> None:
 	store = RecruiterAIStore(tmp_path)
 	rubric = normalize_rubric()
