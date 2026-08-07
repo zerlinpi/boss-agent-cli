@@ -7,10 +7,15 @@ response validation at the network boundary.
 from __future__ import annotations
 
 import math
+import time
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_MAX_ATTEMPTS = 3
+_MAX_RETRY_DELAY_SECONDS = 5.0
 
 
 class AIServiceError(Exception):
@@ -61,6 +66,19 @@ def _validated_messages(messages: Any) -> list[dict[str, Any]]:
 	return messages
 
 
+def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
+	if response is not None:
+		retry_after = response.headers.get("Retry-After")
+		if retry_after:
+			try:
+				seconds = float(retry_after)
+			except ValueError:
+				seconds = -1.0
+			if math.isfinite(seconds) and 0 <= seconds <= _MAX_RETRY_DELAY_SECONDS:
+				return seconds
+	return min(0.5 * (2 ** attempt), 2.0)
+
+
 class AIService:
 	"""Client for OpenAI-compatible chat completion APIs."""
 
@@ -91,8 +109,9 @@ class AIService:
 	) -> str:
 		"""Send a chat completion request and return the assistant's reply text.
 
-		Raises:
-			AIServiceError: On invalid input, HTTP/network errors, or unexpected response format.
+		Only errors that clearly indicate a request was not accepted successfully are retried.
+		Read timeouts are not retried automatically because the provider may already have processed
+		the request, which could duplicate billable model work.
 		"""
 		safe_messages = _validated_messages(messages)
 		effective_temperature = self.temperature if temperature is None else _validated_temperature(temperature)
@@ -109,16 +128,30 @@ class AIService:
 			"max_tokens": effective_max_tokens,
 		}
 
-		try:
-			response = httpx.post(url, json=payload, headers=headers, timeout=60)
-			response.raise_for_status()
-		except httpx.HTTPStatusError as exc:
-			raise AIServiceError(
-				f"API 请求失败: HTTP {exc.response.status_code}",
-				status_code=exc.response.status_code,
-			) from exc
-		except httpx.RequestError as exc:
-			raise AIServiceError(f"网络请求失败: {exc}") from exc
+		response: httpx.Response | None = None
+		for attempt in range(_MAX_ATTEMPTS):
+			try:
+				response = httpx.post(url, json=payload, headers=headers, timeout=60)
+				response.raise_for_status()
+				break
+			except httpx.HTTPStatusError as exc:
+				status_code = exc.response.status_code
+				if status_code in _RETRYABLE_STATUS_CODES and attempt < _MAX_ATTEMPTS - 1:
+					time.sleep(_retry_delay(exc.response, attempt))
+					continue
+				raise AIServiceError(
+					f"API 请求失败: HTTP {status_code}",
+					status_code=status_code,
+				) from exc
+			except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+				if attempt < _MAX_ATTEMPTS - 1:
+					time.sleep(_retry_delay(None, attempt))
+					continue
+				raise AIServiceError(f"网络连接失败: {exc}") from exc
+			except httpx.RequestError as exc:
+				raise AIServiceError(f"网络请求失败: {exc}") from exc
+		if response is None:
+			raise AIServiceError("AI 服务未返回响应")
 
 		try:
 			data = response.json()
