@@ -311,6 +311,16 @@ def normalize_rubric(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 
 	instructions = str(payload.get("instructions", "")).strip()
 	_reject_protected_rubric_text(instructions, label="评分规则 instructions")
+	analysis_title = str(payload.get("title", "")).strip()
+	_reject_protected_rubric_text(analysis_title, label="岗位标题")
+	persona_summary = str(payload.get("persona_summary", "")).strip()
+	_reject_protected_rubric_text(persona_summary, label="岗位画像 persona_summary")
+	suggested_questions = payload.get("suggested_questions", [])
+	if suggested_questions is not None and not isinstance(suggested_questions, list):
+		raise RecruiterAIError("suggested_questions 必须是列表")
+	for question in suggested_questions or []:
+		_reject_protected_rubric_text(str(question), label="建议面试问题")
+
 	return {
 		"version": str(payload.get("version") or "1"),
 		"dimensions": dimensions,
