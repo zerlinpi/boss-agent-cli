@@ -66,6 +66,18 @@ def _normalize_friend_id(value: Any) -> int | None:
 	return parsed if parsed > 0 else None
 
 
+def _normalize_record_source(record: dict[str, Any]) -> dict[str, Any]:
+	"""Make legacy stored platform references safe to consume without rewriting history."""
+	source = record.get("source")
+	if isinstance(source, dict):
+		clean_source = dict(source)
+		clean_source["friend_id"] = _normalize_friend_id(clean_source.get("friend_id"))
+		clean = dict(record)
+		clean["source"] = clean_source
+		return clean
+	return record
+
+
 def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int, label: str) -> int:
 	if value in (None, ""):
 		return default
@@ -106,11 +118,14 @@ def install_controller_reliability() -> None:
 	_INSTALLED = True
 
 	controller_cls = controller_module.RecruiterWebController
+	store_cls = controller_module.RecruiterAIStore
 	original_service = controller_cls._service
 	original_extract_candidate_ref = controller_module.extract_candidate_ref
 	original_screen_local = controller_cls.screen_local
 	original_screen_boss = controller_cls.screen_boss
 	original_generate_reply = controller_cls.generate_reply
+	original_rank = store_cls.rank
+	original_get_evaluation = store_cls.get_evaluation
 
 	def lazy_service(self: Any) -> _LazyAIService:
 		return _LazyAIService(self, original_service)
@@ -119,6 +134,12 @@ def install_controller_reliability() -> None:
 		ref = original_extract_candidate_ref(item, default_job_id=default_job_id)
 		ref["friend_id"] = _normalize_friend_id(ref.get("friend_id"))
 		return ref
+
+	def rank(self: Any, *, job_key: str, top: int) -> list[dict[str, Any]]:
+		return [_normalize_record_source(record) for record in original_rank(self, job_key=job_key, top=top)]
+
+	def get_evaluation(self: Any, record_id: str) -> dict[str, Any]:
+		return _normalize_record_source(original_get_evaluation(self, record_id))
 
 	def screen_local(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
 		clean = dict(payload)
@@ -212,6 +233,8 @@ def install_controller_reliability() -> None:
 				break
 		return items
 
+	setattr(store_cls, "rank", rank)
+	setattr(store_cls, "get_evaluation", get_evaluation)
 	setattr(controller_cls, "_service", lazy_service)
 	setattr(controller_cls, "screen_local", screen_local)
 	setattr(controller_cls, "screen_boss", screen_boss)
