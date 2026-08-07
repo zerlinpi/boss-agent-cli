@@ -105,6 +105,9 @@
 | 消息回复 | `boss hr reply <friend_id> <message>` | 是 | 受限（默认阻断） |
 | 附件简历请求 | `boss hr request-resume <friend_id>` | 是 | 受限（默认阻断） |
 | 职位列表与上下线 | `boss hr jobs` | 是 | httpx |
+| 招聘 AI 工作台 | `boss hr ai` | 视子命令 | 本地 + AI 服务；`evaluate-geek` / `screen-applications` 等平台读取仍受模式与授权边界约束 |
+
+`boss hr ai` 当前包含岗位配置、单份/批量简历评估、BOSS 候选人评估、投递筛选、排名、报告、人工状态和回复草稿；不会自动录用、淘汰或发送消息。
 
 说明：
 - **通道**：httpx 为直接 API 请求。Assisted Mode 命中风控时停止；Research Mode 只运行显式声明的 browser/hook adapter，禁止无界重试，并要求 checkpoint 与脱敏。AI 服务为第三方大模型 API，不应输入未获授权的聊天记录、简历或联系方式。
@@ -112,4 +115,4 @@
 - 当前多平台状态：`boss platforms` 返回本地平台注册与能力状态，也可通过 `boss platforms --platform qiancheng` / `--platform 51job` 只查看单个平台或别名；`zhipin` 已覆盖求职者与招聘者实现，但敏感链路默认受低风险模式阻断；`zhilian` 已接通候选者侧链路，招聘者侧自动化通过 `agent` browser/CDP adapter V1 接入；`qiancheng` / 51job 仅为已注册占位适配器，真实工作流统一返回 `NOT_SUPPORTED`。
 - 当前登录状态：`zhipin` / `zhilian` 保留用户主动登录兼容链路；风控研究仅在显式 Research Mode 和声明的 adapter 中进行，且不得用于规避平台风控。
 - `crawl` 是用户显式触发的顺序 Research Mode 任务，使用独立 Chrome profile、跨进程速率预算、SQLite 断点和 `crawl stop` kill switch；MCP 保持 assisted-only，仅提供已有 run 的 `crawl_status/results/shortlist` 本地操作。默认 Hook 为 `none`；用户只有在拥有脚本授权时才能提供本地原始文件和 `SHA256SUMS` 以选择 Hook。候选人 `agent crawl` 默认只能消费已完成 run，只有设置 `operating_mode=research` 且传入 `--allow-crawl` 才可新建采集；风险码、安全页或预算耗尽会停止并返回恢复命令。
-- 以 `boss schema` 为准：当前暴露 38 个顶层命令；其中 `hr` 下还有 9 个一级招聘者子命令，`ai` / `resume` 为命令组入口。
+- 以 `boss schema` 为准：当前暴露 38 个顶层命令。上游能力矩阵基线记录为 `hr` 下 9 个一级招聘者子命令；当前 fork 在此基础上新增 `hr ai` 作为第 10 个招聘 AI 工作台入口。`ai` / `resume` 仍为命令组入口。
