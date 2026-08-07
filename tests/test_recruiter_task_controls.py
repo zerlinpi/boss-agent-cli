@@ -50,7 +50,7 @@ def test_queued_task_cancel_prevents_function_execution(tmp_path: Path) -> None:
 		manager.close()
 
 
-def test_running_task_cancel_never_becomes_completed(tmp_path: Path) -> None:
+def test_running_task_cancel_stays_active_until_worker_exits(tmp_path: Path) -> None:
 	manager = TaskManager(storage_path=tmp_path / "tasks.db", max_workers=1)
 	started = Event()
 	release = Event()
@@ -61,19 +61,19 @@ def test_running_task_cancel_never_becomes_completed(tmp_path: Path) -> None:
 			progress(80, "almost done")
 			return {"ok": True}
 
-		task = manager.submit("running", work)
+		task = manager.submit("screen-local", work, metadata={"job_key": "java"})
 		assert started.wait(1)
 		cancelled = manager.cancel(task["id"])
 		assert cancelled is not None
-		assert cancelled["error"]["code"] == "TASK_CANCELLED"
-		release.set()
-		time.sleep(0.1)
+		assert cancelled["status"] == "cancelling"
+		assert cancelled["error"]["code"] == "TASK_CANCEL_REQUESTED"
+		assert manager.has_active_screening("java") is True
 
-		final = manager.get(task["id"])
-		assert final is not None
-		assert final["status"] == "failed"
+		release.set()
+		final = _wait_for(manager, task["id"], "failed")
 		assert final["error"]["code"] == "TASK_CANCELLED"
 		assert final["result"] is None
+		assert manager.has_active_screening("java") is False
 	finally:
 		release.set()
 		manager.close()
@@ -92,8 +92,12 @@ def test_web_cancel_endpoint_and_asset_are_installed(tmp_path: Path) -> None:
 		assert started.wait(1)
 
 		result = application.post(f"/api/tasks/{task['id']}/cancel", {})
-		assert result["status"] == "failed"
-		assert result["error"]["code"] == "TASK_CANCELLED"
+		assert result["status"] == "cancelling"
+		assert result["error"]["code"] == "TASK_CANCEL_REQUESTED"
+
+		release.set()
+		final = _wait_for(application.tasks, task["id"], "failed")
+		assert final["error"]["code"] == "TASK_CANCELLED"
 
 		app_js, content_type = application.asset("app.js")
 		assert content_type.startswith("text/javascript")
