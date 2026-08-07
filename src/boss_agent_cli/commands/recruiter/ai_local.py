@@ -177,16 +177,22 @@ def screen_cmd(
 		except (RecruiterAIError, AIServiceError) as exc:
 			failed.append({"file": str(path), "error": str(exc)})
 
-	ranked_records = store.rank(job_key=job_key, top=max(top, draft_top))
+	# Auto-drafts belong to this screening run, not the historical leaderboard. Pull the full
+	# bounded ranking only when necessary so newly evaluated candidates cannot be hidden behind
+	# higher-scoring historical records before the current-run filter is applied.
+	rank_limit = 10_000 if draft_top and processed else top
+	ranked_records = store.rank(job_key=job_key, top=rank_limit)
+	processed_ids = set(processed)
+	draft_records = [record for record in ranked_records if str(record.get("id") or "") in processed_ids]
 	drafts: list[dict[str, Any]] = []
 	draft_failed: list[dict[str, str]] = []
-	if draft_top:
+	if draft_top and draft_records:
 		try:
 			drafts, draft_failed = draft_for_records(
 				service=service,
 				store=store,
 				platform=None,
-				records=ranked_records,
+				records=draft_records,
 				limit=draft_top,
 				include_chat=False,
 				conversation_parser=conversation_to_text,
