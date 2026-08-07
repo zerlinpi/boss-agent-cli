@@ -6,8 +6,10 @@ response validation at the network boundary.
 
 from __future__ import annotations
 
+import atexit
 import math
 import time
+from threading import Lock
 from typing import Any
 from urllib.parse import urlparse
 
@@ -16,6 +18,9 @@ import httpx
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 _MAX_ATTEMPTS = 3
 _MAX_RETRY_DELAY_SECONDS = 5.0
+_ORIGINAL_HTTPX_POST = httpx.post
+_SHARED_CLIENT: httpx.Client | None = None
+_SHARED_CLIENT_LOCK = Lock()
 
 
 class AIServiceError(Exception):
@@ -24,6 +29,43 @@ class AIServiceError(Exception):
 	def __init__(self, message: str, *, status_code: int | None = None):
 		super().__init__(message)
 		self.status_code = status_code
+
+
+def _shared_client() -> httpx.Client:
+	"""Return one thread-safe process client so repeated AI calls reuse pooled connections."""
+	global _SHARED_CLIENT
+	client = _SHARED_CLIENT
+	if client is not None:
+		return client
+	with _SHARED_CLIENT_LOCK:
+		client = _SHARED_CLIENT
+		if client is None:
+			client = httpx.Client()
+			_SHARED_CLIENT = client
+		return client
+
+
+def _close_shared_client() -> None:
+	global _SHARED_CLIENT
+	with _SHARED_CLIENT_LOCK:
+		client, _SHARED_CLIENT = _SHARED_CLIENT, None
+	if client is not None:
+		try:
+			client.close()
+		except Exception:
+			pass
+
+
+atexit.register(_close_shared_client)
+
+
+def _post(url: str, **kwargs: Any) -> httpx.Response:
+	"""Use pooled production I/O while preserving existing monkeypatch/test compatibility."""
+	# Existing integrations and tests may monkeypatch the module-level httpx.post function. Honor
+	# that hook when present; normal production calls use the shared Client connection pool.
+	if httpx.post is not _ORIGINAL_HTTPX_POST:
+		return httpx.post(url, **kwargs)
+	return _shared_client().post(url, **kwargs)
 
 
 def _validated_base_url(value: str) -> str:
@@ -131,7 +173,7 @@ class AIService:
 		response: httpx.Response | None = None
 		for attempt in range(_MAX_ATTEMPTS):
 			try:
-				response = httpx.post(url, json=payload, headers=headers, timeout=60)
+				response = _post(url, json=payload, headers=headers, timeout=60)
 				response.raise_for_status()
 				break
 			except httpx.HTTPStatusError as exc:
