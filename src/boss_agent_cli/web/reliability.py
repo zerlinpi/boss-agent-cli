@@ -245,15 +245,31 @@ def install_controller_reliability() -> None:
 
 
 def install_server_reliability(server_module: Any) -> None:
-	"""Validate explicit native Web ports before attempting to bind sockets."""
+	"""Validate native ports and normalize login payloads before background task creation."""
 	original_build_server = server_module.build_server
 	if getattr(original_build_server, "_boss_reliability_wrapped", False):
 		return
+	application_cls = server_module.RecruiterWebApplication
+	original_post = application_cls.post
+
+	def post(self: Any, path: str, payload: dict[str, Any]) -> Any:
+		if path != "/api/auth/login":
+			return original_post(self, path, payload)
+		clean = dict(payload)
+		clean["timeout"] = _bounded_int(clean.get("timeout"), default=180, minimum=30, maximum=600, label="timeout")
+		clean["force_cdp"] = _boolean(clean.get("force_cdp"), label="force_cdp")
+		cookie_source = clean.get("cookie_source")
+		if cookie_source is not None and not isinstance(cookie_source, str):
+			raise controller_module.WebConsoleError("INVALID_PARAM", "cookie_source 必须是字符串")
+		if isinstance(cookie_source, str) and len(cookie_source) > 64:
+			raise controller_module.WebConsoleError("INVALID_PARAM", "cookie_source 过长")
+		return original_post(self, path, clean)
 
 	def build_server(controller: Any, *, host: str = "127.0.0.1", port: int = 8765) -> Any:
 		if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
 			raise ValueError("Web 控制台端口必须是 0-65535 的整数（0 仅用于测试时自动分配）")
 		return original_build_server(controller, host=host, port=port)
 
+	setattr(application_cls, "post", post)
 	setattr(build_server, "_boss_reliability_wrapped", True)
 	setattr(server_module, "build_server", build_server)
