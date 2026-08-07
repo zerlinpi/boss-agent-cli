@@ -1,15 +1,11 @@
 @echo off
 setlocal
-set "ROOT=%~dp0"
-title BOSS Recruit AI
-cd /d "%ROOT%"
-if exist "%ROOT%.venv\Scripts\python.exe" (
-	"%ROOT%.venv\Scripts\python.exe" "%ROOT%start-recruiter-web.pyw"
-	exit /b %errorlevel%
+title BOSS Recruit AI - One Click
+cd /d "%~dp0"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-recruiter-web.ps1"
+if errorlevel 1 (
+  echo.
+  echo Startup failed. Review the error above, then press any key to close.
+  pause >nul
 )
-where py >nul 2>nul
-if %errorlevel%==0 (
-	py "%ROOT%start-recruiter-web.pyw"
-	exit /b %errorlevel%
-)
-python "%ROOT%start-recruiter-web.pyw"
+endlocal
