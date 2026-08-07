@@ -1,0 +1,63 @@
+/* Responsive and dashboard layout refinements verified in Chromium. */
+.panel,
+.table-card {
+	min-width: 0;
+}
+
+.span-3 {
+	grid-column: 1 / -1;
+}
+
+.candidate-main {
+	min-width: 0;
+}
+
+.system-panel .system-list {
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 0;
+}
+
+.system-panel .system-list > div {
+	padding: 4px 18px;
+	border-right: 1px solid var(--line);
+	border-bottom: 0;
+}
+
+.system-panel .system-list > div:first-child {
+	padding-left: 0;
+}
+
+.system-panel .system-list > div:last-child {
+	padding-right: 0;
+	border-right: 0;
+}
+
+@media (max-width: 850px) {
+	.dashboard-grid,
+	.screening-grid,
+	.activity-grid,
+	.settings-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.span-2,
+	.span-3 {
+		grid-column: auto;
+	}
+
+	.system-panel .system-list {
+		grid-template-columns: 1fr 1fr;
+	}
+
+	.system-panel .system-list > div {
+		padding: 10px;
+		border-right: 0;
+		border-bottom: 1px solid var(--line);
+	}
+}
+
+@media (max-width: 560px) {
+	.system-panel .system-list {
+		grid-template-columns: 1fr;
+	}
+}

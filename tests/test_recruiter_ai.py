@@ -14,6 +14,7 @@ from boss_agent_cli.recruiter_ai import (
 	normalize_rubric,
 	parse_ai_json,
 	recommended_reply_intent,
+	redact_resume_for_model,
 	summarize_ranking,
 	validate_evaluation,
 )
@@ -108,6 +109,30 @@ def test_evaluate_resume_recomputes_score_and_redacts_identity() -> None:
 	assert result["candidate_name"] == "张三"
 	assert "不得依据性别" in service.messages[0]["content"]
 	assert "张三" not in service.messages[1]["content"]
+
+
+def test_redact_resume_for_model_scrubs_free_text_identity_and_contacts() -> None:
+	resume = {
+		"basic": {"name": "张三", "degree": "本科"},
+		"raw_text": (
+			"张三，手机 138-0000-0000，邮箱 zhangsan@example.com，"
+			"微信 weixin: zhangsan88，QQ: 12345678，身份证 110101199001011234。"
+		),
+		"work_experience": [{"description": "张三负责 Java 订单系统"}],
+	}
+
+	redacted = redact_resume_for_model(resume)
+	serialized = json.dumps(redacted, ensure_ascii=False)
+
+	for secret in (
+		"张三", "138-0000-0000", "zhangsan@example.com", "zhangsan88",
+		"12345678", "110101199001011234",
+	):
+		assert secret not in serialized
+	assert "[姓名已脱敏]" in serialized
+	assert "[手机号已脱敏]" in serialized
+	assert "[邮箱已脱敏]" in serialized
+	assert "[身份证号已脱敏]" in serialized
 
 
 def test_missing_hard_requirement_forces_manual_review() -> None:

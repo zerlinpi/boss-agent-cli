@@ -4,89 +4,124 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<meta name="color-scheme" content="light">
-	<title>BOSS 招聘 AI 控制台</title>
+	<title>BOSS Recruit AI</title>
 	<link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 	<div class="app-shell">
-		<aside class="sidebar">
-			<div class="brand">
-				<div class="brand-mark">B</div>
-				<div><strong>BOSS Recruit AI</strong><span>本地招聘控制台</span></div>
-			</div>
+		<aside class="sidebar" id="sidebar">
+			<div class="brand"><div class="brand-mark">R</div><div><strong>Recruit AI</strong><span>招聘决策工作台</span></div></div>
 			<nav class="nav-list" aria-label="主导航">
-				<button class="nav-item active" data-view="dashboard"><span>概览</span><kbd>1</kbd></button>
-				<button class="nav-item" data-view="jobs"><span>岗位配置</span><kbd>2</kbd></button>
-				<button class="nav-item" data-view="screening"><span>智能筛选</span><kbd>3</kbd></button>
-				<button class="nav-item" data-view="candidates"><span>候选人</span><kbd>4</kbd></button>
-				<button class="nav-item" data-view="replies"><span>回复草稿</span><kbd>5</kbd></button>
-				<button class="nav-item" data-view="settings"><span>系统设置</span><kbd>6</kbd></button>
+				<button class="nav-item active" data-view="dashboard"><span class="nav-icon">⌂</span><span>概览</span><kbd>1</kbd></button>
+				<button class="nav-item" data-view="jobs"><span class="nav-icon">▤</span><span>岗位</span><kbd>2</kbd></button>
+				<button class="nav-item" data-view="screening"><span class="nav-icon">✦</span><span>智能筛选</span><kbd>3</kbd></button>
+				<button class="nav-item" data-view="pipeline"><span class="nav-icon">⇥</span><span>候选人</span><kbd>4</kbd></button>
+				<button class="nav-item" data-view="replies"><span class="nav-icon">✎</span><span>回复草稿</span><kbd>5</kbd></button>
+				<button class="nav-item" data-view="activity"><span class="nav-icon">◷</span><span>任务与审计</span><kbd>6</kbd></button>
+				<button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span><span>设置</span><kbd>7</kbd></button>
 			</nav>
-			<div class="sidebar-status"><div class="status-dot" id="sidebar-auth-dot"></div><div><strong id="sidebar-auth-text">检查登录状态</strong><span id="sidebar-mode-text">Assisted Mode</span></div></div>
+			<div class="sidebar-footer">
+				<div class="sidebar-status"><div class="status-dot" id="sidebar-auth-dot"></div><div><strong id="sidebar-auth-text">检查登录状态</strong><span id="sidebar-mode-text">Assisted Mode</span></div></div>
+				<div class="privacy-note">数据仅保存在本机</div>
+			</div>
 		</aside>
+
 		<main class="main-area">
 			<header class="topbar">
-				<div><p class="eyebrow">RECRUITER OPERATIONS</p><h1 id="page-title">招聘概览</h1></div>
+				<button class="mobile-menu" id="mobile-menu" aria-label="打开菜单">☰</button>
+				<div class="page-heading"><p class="eyebrow">RECRUITER OPERATIONS</p><h1 id="page-title">招聘概览</h1></div>
 				<div class="topbar-actions">
 					<label class="job-picker"><span>当前岗位</span><select id="global-job-select"></select></label>
 					<button class="button ghost" id="refresh-button">刷新</button>
 					<button class="button primary" data-action="open-screening">开始筛选</button>
 				</div>
 			</header>
+
+			<section id="onboarding" class="onboarding hidden" aria-label="设置进度">
+				<div><p class="eyebrow">GET STARTED</p><h2>完成设置，开始招聘筛选</h2></div>
+				<div class="onboarding-steps">
+					<button data-onboarding-view="settings" data-onboarding-key="ai_configured"><i>1</i><span>配置 AI 服务</span></button>
+					<button data-onboarding-view="settings" data-onboarding-key="auth_ready"><i>2</i><span>登录 BOSS</span></button>
+					<button data-onboarding-view="jobs" data-onboarding-key="has_job"><i>3</i><span>创建岗位</span></button>
+					<button data-onboarding-view="screening" data-onboarding-key="has_candidates"><i>4</i><span>完成首次筛选</span></button>
+				</div>
+			</section>
+
 			<div id="task-banner" class="task-banner hidden" aria-live="polite">
 				<div class="task-copy"><strong id="task-title">任务执行中</strong><span id="task-message">正在准备</span></div>
 				<div class="progress-track"><div id="task-progress" class="progress-bar"></div></div><span id="task-percent">0%</span>
 			</div>
+
 			<section class="view active" data-view-panel="dashboard">
 				<div class="metrics-grid">
-					<article class="metric-card accent"><span class="metric-label">候选人总数</span><strong id="metric-total">0</strong><small>已去重的最新评估</small></article>
-					<article class="metric-card"><span class="metric-label">建议面试</span><strong id="metric-interview">0</strong><small>Strong + Interview</small></article>
-					<article class="metric-card"><span class="metric-label">待人工复核</span><strong id="metric-review">0</strong><small>硬条件不明确或需判断</small></article>
-					<article class="metric-card"><span class="metric-label">已进入面试</span><strong id="metric-stage">0</strong><small>人工状态为 Interview</small></article>
+					<article class="metric-card accent"><span>候选人总数</span><strong id="metric-total">0</strong><small>当前岗位去重结果</small></article>
+					<article class="metric-card"><span>建议面试</span><strong id="metric-interview">0</strong><small>AI 建议进入面试</small></article>
+					<article class="metric-card"><span>平均匹配分</span><strong id="metric-average">0</strong><small>最新候选人平均分</small></article>
+					<article class="metric-card"><span>面试转化率</span><strong id="metric-conversion">0%</strong><small>进入面试或录用</small></article>
 				</div>
 				<div class="dashboard-grid">
-					<article class="panel span-2"><div class="panel-header"><div><p class="eyebrow">TOP CANDIDATES</p><h2>优先处理候选人</h2></div><button class="text-button" data-action="show-candidates">查看全部</button></div><div id="dashboard-candidates" class="candidate-stack empty-state">选择岗位后查看候选人</div></article>
-					<article class="panel"><div class="panel-header"><div><p class="eyebrow">WORKFLOW</p><h2>招聘漏斗</h2></div></div><div id="funnel-list" class="funnel-list"></div></article>
-					<article class="panel"><div class="panel-header"><div><p class="eyebrow">SYSTEM</p><h2>系统状态</h2></div></div><div class="system-list"><div><span>AI 服务</span><strong id="system-ai">未配置</strong></div><div><span>BOSS 登录</span><strong id="system-auth">未登录</strong></div><div><span>运行模式</span><strong id="system-mode">Assisted</strong></div><div><span>本地数据</span><strong id="system-data">—</strong></div></div></article>
+					<article class="panel span-2"><div class="panel-header"><div><p class="eyebrow">TOP CANDIDATES</p><h2>优先处理候选人</h2></div><button class="text-button" data-action="show-pipeline">查看全部</button></div><div id="dashboard-candidates" class="candidate-stack empty-state">选择岗位后查看候选人</div></article>
+					<article class="panel"><div class="panel-header"><div><p class="eyebrow">SCORE DISTRIBUTION</p><h2>匹配分布</h2></div></div><div id="score-distribution" class="distribution-list"></div></article>
+					<article class="panel"><div class="panel-header"><div><p class="eyebrow">PIPELINE</p><h2>招聘漏斗</h2></div></div><div id="funnel-list" class="funnel-list"></div></article>
+					<article class="panel span-2"><div class="panel-header"><div><p class="eyebrow">RECENT ACTIVITY</p><h2>最近操作</h2></div><button class="text-button" data-action="show-activity">查看全部</button></div><div id="dashboard-activity" class="activity-list compact"></div></article>
+					<article class="panel span-3 system-panel"><div class="panel-header"><div><p class="eyebrow">SYSTEM</p><h2>系统状态</h2></div></div><div class="system-list"><div><span>AI 服务</span><strong id="system-ai">未配置</strong></div><div><span>BOSS 登录</span><strong id="system-auth">未登录</strong></div><div><span>运行模式</span><strong id="system-mode">Assisted</strong></div><div><span>近 7 天新增</span><strong id="system-recent">0</strong></div></div></article>
 				</div>
 			</section>
+
 			<section class="view" data-view-panel="jobs">
-				<div class="section-heading"><div><p class="eyebrow">JOB PROFILES</p><h2>岗位与评分规则</h2><p>为每个岗位保存 JD、BOSS 职位 ID 和证据化评分标准。</p></div><button class="button primary" id="new-job-button">新建岗位</button></div>
+				<div class="section-heading"><div><p class="eyebrow">JOB PROFILES</p><h2>岗位与评分规则</h2><p>定义岗位画像、硬性要求和证据化评分维度。</p></div><button class="button primary" id="new-job-button">新建岗位</button></div>
 				<div id="job-grid" class="job-grid"></div>
 				<div id="job-editor" class="panel editor-panel hidden">
 					<div class="panel-header"><div><p class="eyebrow">JOB EDITOR</p><h2 id="job-editor-title">新建岗位</h2></div><button class="icon-button" data-action="close-job-editor" aria-label="关闭">×</button></div>
 					<form id="job-form" class="form-grid">
-						<label><span>岗位标识</span><input name="job_key" required placeholder="java-backend"></label><label><span>岗位名称</span><input name="title" required placeholder="Java 后端开发"></label>
-						<label class="full"><span>BOSS 职位 ID</span><input name="boss_job_id" placeholder="用于网页一键筛选投递候选人"></label>
+						<label><span>岗位标识</span><input name="job_key" required placeholder="java-backend"></label>
+						<label><span>岗位名称</span><input name="title" required placeholder="Java 后端开发"></label>
+						<label class="full"><span>BOSS 职位 ID</span><input name="boss_job_id" placeholder="用于筛选投递候选人"></label>
 						<label class="full"><span>岗位 JD</span><textarea name="jd_text" rows="12" required placeholder="粘贴岗位职责、必需技能和优先条件"></textarea></label>
-						<details class="full advanced-box"><summary>高级评分规则 JSON</summary><textarea name="rubric" rows="16" spellcheck="false"></textarea><p>留空使用默认六维评分；也可修改硬条件、维度分值和推荐阈值。</p></details>
+						<div class="ai-assist full"><div><strong>AI 岗位画像</strong><span>从 JD 自动提取硬性条件、评分维度和面试问题</span></div><button type="button" class="button secondary" id="analyze-jd-button">AI 生成评分规则</button></div>
+						<div id="job-analysis" class="analysis-result full hidden"></div>
+						<details class="full advanced-box" open><summary>评分规则 JSON</summary><textarea name="rubric" rows="16" spellcheck="false"></textarea><p>可直接使用 AI 生成结果，也可人工调整硬条件、维度分值和推荐阈值。</p></details>
 						<div class="form-actions full"><button type="button" class="button ghost" data-action="close-job-editor">取消</button><button class="button primary" type="submit">保存岗位</button></div>
 					</form>
 				</div>
 			</section>
+
 			<section class="view" data-view-panel="screening">
-				<div class="section-heading"><div><p class="eyebrow">SCREENING CENTER</p><h2>智能筛选中心</h2><p>上传结构化简历，或从 BOSS 投递列表读取候选人。全部结果仅供人工决策。</p></div></div>
+				<div class="section-heading"><div><p class="eyebrow">SCREENING CENTER</p><h2>智能筛选中心</h2><p>上传简历文件，或读取授权范围内的 BOSS 投递候选人。</p></div></div>
 				<div class="screening-grid">
-					<article class="panel action-panel"><div class="action-icon">JSON</div><h3>本地简历批量筛选</h3><p>选择多份 JSON 简历，浏览器读取后发送到本机服务，不上传第三方存储。</p><label class="file-drop" id="resume-drop"><input id="resume-files" type="file" accept="application/json,.json" multiple><strong>选择或拖入 JSON 简历</strong><span id="resume-file-summary">尚未选择文件</span></label><label class="check-row"><input id="local-force" type="checkbox"><span>忽略未变化检测，强制重新评估</span></label><button class="button primary wide" id="screen-local-button">开始本地筛选</button></article>
+					<article class="panel action-panel"><div class="action-icon">FILE</div><h3>本地简历批量筛选</h3><p>支持 PDF、DOCX、TXT、Markdown 和结构化 JSON。文件只发送到本机服务。</p><label class="file-drop" id="resume-drop"><input id="resume-files" type="file" accept=".json,.txt,.md,.pdf,.docx,application/json,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple><strong>选择或拖入简历文件</strong><span id="resume-file-summary">尚未选择文件</span><small>单文件最大 12 MB，单次最多 100 份</small></label><div id="resume-file-list" class="file-list"></div><label class="check-row"><input id="local-force" type="checkbox"><span>忽略未变化检测，强制重新评估</span></label><button class="button primary wide" id="screen-local-button">开始本地筛选</button></article>
 					<article class="panel action-panel boss-panel"><div class="action-icon">BOSS</div><h3>BOSS 投递候选人筛选</h3><p>需要 Research Mode 和有效登录态。自动读取投递与简历，但不会自动发送消息。</p><div class="compact-form"><label><span>BOSS 职位 ID</span><input id="boss-job-id" placeholder="从岗位配置自动带入"></label><div class="two-col"><label><span>读取页数</span><input id="boss-pages" type="number" min="1" max="10" value="1"></label><label><span>候选人上限</span><input id="boss-limit" type="number" min="1" max="100" value="30"></label></div><div class="two-col"><label><span>生成草稿数</span><input id="boss-draft-top" type="number" min="0" max="20" value="5"></label><label class="check-field"><input id="boss-include-chat" type="checkbox"><span>读取聊天上下文</span></label></div><label class="check-row"><input id="boss-force" type="checkbox"><span>强制重新评估未变化候选人</span></label></div><button class="button primary wide" id="screen-boss-button">开始 BOSS 筛选</button></article>
 				</div>
 				<article class="panel result-panel"><div class="panel-header"><div><p class="eyebrow">LATEST RUN</p><h2>最近一次筛选结果</h2></div></div><div id="screen-result" class="empty-state">尚未执行筛选任务</div></article>
 			</section>
-			<section class="view" data-view-panel="candidates">
-				<div class="section-heading"><div><p class="eyebrow">CANDIDATE PIPELINE</p><h2>候选人工作台</h2><p>按 AI 评分排序，并由招聘人员更新阶段和最终判断。</p></div><div class="filter-row"><input id="candidate-search" placeholder="搜索姓名、优势或风险"><select id="candidate-status-filter"><option value="">全部状态</option></select></div></div>
-				<div class="table-card"><table><thead><tr><th>排名</th><th>候选人</th><th>匹配分</th><th>推荐</th><th>当前阶段</th><th>主要判断</th><th></th></tr></thead><tbody id="candidate-table-body"></tbody></table><div id="candidate-empty" class="empty-state">当前岗位暂无候选人</div></div>
+
+			<section class="view" data-view-panel="pipeline">
+				<div class="section-heading"><div><p class="eyebrow">CANDIDATE PIPELINE</p><h2>候选人工作台</h2><p>AI 负责提供证据和排序，招聘人员负责阶段与最终判断。</p></div><div class="pipeline-actions"><button class="button ghost" id="export-button">导出 CSV</button><div class="segmented"><button class="active" data-pipeline-mode="table">列表</button><button data-pipeline-mode="kanban">看板</button></div></div></div>
+				<div class="filter-toolbar"><label class="search-box"><span>⌕</span><input id="candidate-search" placeholder="搜索姓名、优势、风险或摘要"></label><select id="candidate-status-filter"><option value="">全部状态</option></select><select id="candidate-recommendation-filter"><option value="">全部推荐</option><option value="strong_interview">强烈建议面试</option><option value="interview">建议面试</option><option value="manual_review">人工复核</option><option value="not_recommended">暂不推荐</option></select><select id="candidate-sort"><option value="score-desc">匹配分从高到低</option><option value="score-asc">匹配分从低到高</option><option value="name">按姓名</option></select></div>
+				<div id="bulk-toolbar" class="bulk-toolbar hidden"><strong><span id="bulk-count">0</span> 位已选择</strong><select id="bulk-status"></select><input id="bulk-note" placeholder="批量备注（可选）"><button class="button primary" id="bulk-apply">批量更新</button><button class="button ghost" id="bulk-clear">取消选择</button></div>
+				<div id="pipeline-table" class="table-card"><table><thead><tr><th><input id="select-all-candidates" type="checkbox" aria-label="全选"></th><th>排名</th><th>候选人</th><th>匹配分</th><th>推荐</th><th>当前阶段</th><th>主要判断</th><th></th></tr></thead><tbody id="candidate-table-body"></tbody></table><div id="candidate-empty" class="empty-state">当前岗位暂无候选人</div></div>
+				<div id="pipeline-kanban" class="kanban-board hidden"></div>
 			</section>
+
 			<section class="view" data-view-panel="replies"><div class="section-heading"><div><p class="eyebrow">HUMAN REVIEW</p><h2>AI 回复草稿</h2><p>所有内容必须人工确认后，再复制到 BOSS 官方页面发送。</p></div></div><div id="reply-grid" class="reply-grid"></div></section>
+
+			<section class="view" data-view-panel="activity">
+				<div class="section-heading"><div><p class="eyebrow">OPERATIONS LOG</p><h2>任务与审计</h2><p>筛选任务跨重启保留，关键人工操作写入本地审计记录。</p></div><button class="button ghost" id="activity-refresh">刷新</button></div>
+				<div class="activity-grid"><article class="panel"><div class="panel-header"><div><h3>任务历史</h3><p>登录、筛选和 JD 分析任务</p></div></div><div id="task-history" class="task-history"></div></article><article class="panel"><div class="panel-header"><div><h3>操作审计</h3><p>岗位、候选人、设置和草稿变更</p></div></div><div id="audit-history" class="activity-list"></div></article></div>
+			</section>
+
 			<section class="view" data-view-panel="settings">
 				<div class="section-heading"><div><p class="eyebrow">SETTINGS</p><h2>系统设置</h2><p>配置 AI、BOSS 登录和受控研究模式。</p></div></div>
 				<div class="settings-grid">
-					<article class="panel"><div class="panel-header"><div><h3>AI 服务</h3><p>API Key 会加密保存在本机。</p></div><span id="ai-config-badge" class="badge">未配置</span></div><form id="ai-form" class="compact-form"><label><span>服务商</span><select name="provider" id="ai-provider"></select></label><label><span>模型</span><input name="model" id="ai-model" required placeholder="deepseek-chat"></label><label><span>Base URL</span><input name="base_url" id="ai-base-url" placeholder="自动使用服务商默认地址"></label><label><span>API Key</span><input name="api_key" type="password" autocomplete="new-password" placeholder="留空表示保留现有密钥"></label><button class="button primary" type="submit">保存 AI 配置</button></form></article>
+					<article class="panel"><div class="panel-header"><div><h3>AI 服务</h3><p>API Key 加密保存在本机。</p></div><span id="ai-config-badge" class="badge">未配置</span></div><form id="ai-form" class="compact-form"><label><span>服务商</span><select name="provider" id="ai-provider"></select></label><label><span>模型</span><input name="model" id="ai-model" required placeholder="deepseek-chat"></label><label><span>Base URL</span><input name="base_url" id="ai-base-url" placeholder="自动使用服务商默认地址"></label><label><span>API Key</span><input name="api_key" type="password" autocomplete="new-password" placeholder="留空表示保留现有密钥"></label><div class="two-col"><label><span>Temperature</span><input name="temperature" id="ai-temperature" type="number" min="0" max="2" step="0.1" value="0.2"></label><label><span>最大输出 Token</span><input name="max_tokens" id="ai-max-tokens" type="number" min="256" max="32768" value="4096"></label></div><button class="button primary" type="submit">保存 AI 配置</button></form></article>
 					<article class="panel"><div class="panel-header"><div><h3>BOSS 登录</h3><p id="auth-description">检查本地登录状态</p></div><span id="auth-badge" class="badge">未登录</span></div><div class="compact-form"><label><span>登录等待时间（秒）</span><input id="login-timeout" type="number" min="30" max="600" value="180"></label><label><span>Cookie 浏览器来源</span><select id="cookie-source"><option value="">自动检测</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="firefox">Firefox</option></select></label><label class="check-row"><input id="force-cdp" type="checkbox"><span>强制使用已启动的 Chrome CDP</span></label><button class="button primary" id="login-button">打开登录窗口</button></div></article>
 					<article class="panel warning-panel"><div class="panel-header"><div><h3>运行模式</h3><p>读取候选人简历和聊天属于受限能力。</p></div><span id="mode-badge" class="badge">Assisted</span></div><div class="mode-options"><label><input type="radio" name="operating_mode" value="assisted"><span><strong>Assisted</strong><small>默认，仅本地与低风险操作</small></span></label><label><input type="radio" name="operating_mode" value="research"><span><strong>Research</strong><small>允许受控读取候选人数据，遇到风控立即停止</small></span></label></div></article>
+					<article class="panel"><div class="panel-header"><div><h3>本地数据</h3><p>Web 与 CLI 共用同一数据目录</p></div></div><div class="system-list"><div><span>数据目录</span><strong id="system-data">—</strong></div><div><span>任务数据库</span><strong>recruiter-ai/web_tasks.db</strong></div><div><span>审计日志</span><strong>recruiter-ai/audit.jsonl</strong></div></div></article>
 				</div>
 			</section>
 		</main>
 	</div>
+
 	<aside id="candidate-drawer" class="drawer" aria-hidden="true"><div class="drawer-backdrop" data-action="close-drawer"></div><div class="drawer-panel"><div class="drawer-header"><div><p class="eyebrow">CANDIDATE DETAIL</p><h2 id="drawer-name">候选人</h2></div><button class="icon-button" data-action="close-drawer">×</button></div><div id="drawer-content" class="drawer-content"></div></div></aside>
 	<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
 	<script src="/app.js" defer></script>

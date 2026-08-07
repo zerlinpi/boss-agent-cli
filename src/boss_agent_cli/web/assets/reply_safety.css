@@ -1,0 +1,12 @@
+.reply-safety-warning {
+	margin: 10px 0;
+	padding: 10px 12px;
+	display: grid;
+	gap: 3px;
+	border: 1px solid #efc08a;
+	border-radius: 9px;
+	color: #8b4e00;
+	background: #fff4df;
+}
+.reply-safety-warning strong { font-size: 12px; }
+.reply-safety-warning span { font-size: 11px; line-height: 1.5; }

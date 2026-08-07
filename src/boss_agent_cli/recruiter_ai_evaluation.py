@@ -9,6 +9,7 @@ from boss_agent_cli.ai.service import AIService
 from boss_agent_cli.recruiter_ai_models import (
 	RecruiterAIError,
 	candidate_name,
+	json_clone,
 	normalize_rubric,
 	parse_ai_json,
 	redact_contact_text,
@@ -38,7 +39,7 @@ def build_evaluation_messages(
 				"score": "number between 0 and max_score",
 				"max_score": "must equal rubric dimension max_score",
 				"reason": "string",
-				"evidence": ["concise resume facts"],
+				"evidence": ["concise resume facts; positive score requires evidence"],
 			}],
 			"strengths": ["string"], "concerns": ["string"],
 			"next_questions": ["string"], "summary": "string",
@@ -50,7 +51,7 @@ def build_evaluation_messages(
 			"content": (
 				"你是招聘筛选助手。仅依据岗位相关能力和简历中的可验证证据评分。"
 				"不得依据性别、年龄、照片、婚育、民族、健康、政治面貌等受保护属性做判断；"
-				"信息不足必须标记 unclear，不得推断。每个维度都必须提供证据。"
+				"信息不足必须标记 unclear，不得推断。每个正分维度和标记为 met 的硬性要求都必须提供证据。"
 				"AI 只提供辅助建议，不作最终录用或淘汰决定。严格输出一个 JSON 对象。"
 			),
 		},
@@ -93,7 +94,7 @@ def validate_evaluation(
 	payload: dict[str, Any],
 	rubric: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-	"""Normalize model output and recompute scores using the configured rubric."""
+	"""Normalize model output and recompute evidence-backed scores locally."""
 	normalized_rubric = normalize_rubric(rubric)
 	dimension_specs = {item["name"]: item for item in normalized_rubric["dimensions"]}
 	raw_dimensions = payload.get("dimensions")
@@ -113,13 +114,16 @@ def validate_evaluation(
 		if not isinstance(raw_score, (int, float)) or isinstance(raw_score, bool):
 			raw_score = 0
 		max_score = float(spec["max_score"])
+		evidence = _as_text_list(item.get("evidence", []) if isinstance(item, dict) else [])
 		score = max(0.0, min(max_score, float(raw_score)))
+		if score > 0 and not evidence:
+			score = 0.0
 		total_points += score
 		max_points += max_score
 		dimensions.append({
 			"name": name, "score": round(score, 2), "max_score": int(max_score),
 			"reason": str(item.get("reason", "")).strip() if isinstance(item, dict) else "",
-			"evidence": _as_text_list(item.get("evidence", []) if isinstance(item, dict) else []),
+			"evidence": evidence,
 		})
 	if max_points <= 0:
 		raise RecruiterAIError("评分规则总分必须大于 0")
@@ -132,9 +136,12 @@ def validate_evaluation(
 		status = str(item.get("status", "unclear")).lower()
 		if status not in {"met", "missing", "unclear"}:
 			status = "unclear"
+		evidence = _as_text_list(item.get("evidence", []))
+		if status == "met" and not evidence:
+			status = "unclear"
 		hard_results.append({
 			"requirement": str(item.get("requirement", "")).strip(),
-			"status": status, "evidence": _as_text_list(item.get("evidence", [])),
+			"status": status, "evidence": evidence,
 		})
 	configured_hard = normalized_rubric["hard_requirements"]
 	by_requirement = {item["requirement"]: item for item in hard_results if item["requirement"]}
@@ -149,6 +156,8 @@ def validate_evaluation(
 	if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
 		confidence = 0.5
 	confidence = round(max(0.0, min(1.0, float(confidence))), 3)
+	evidenced_dimensions = sum(1 for item in dimensions if item["evidence"])
+	evidence_coverage = round(evidenced_dimensions / len(dimensions), 3) if dimensions else 0.0
 	return {
 		"total_score": total_score,
 		"recommendation": _recommendation_for(
@@ -156,6 +165,7 @@ def validate_evaluation(
 			hard_missing=hard_missing, hard_unclear=hard_unclear,
 		),
 		"confidence": confidence,
+		"evidence_coverage": evidence_coverage,
 		"hard_requirements": hard_results,
 		"dimensions": dimensions,
 		"strengths": _as_text_list(payload.get("strengths", [])),
@@ -165,7 +175,7 @@ def validate_evaluation(
 		),
 		"summary": str(payload.get("summary", "")).strip(),
 		"human_review_required": True,
-		"score_source": "dimension_sum",
+		"score_source": "evidence_backed_dimension_sum",
 	}
 
 
@@ -193,16 +203,41 @@ def recommended_reply_intent(evaluation: dict[str, Any]) -> str:
 	return "decline_draft"
 
 
+def _redact_reply_value(value: Any, *, identity: str) -> Any:
+	if isinstance(value, dict):
+		for key in list(value):
+			value[key] = _redact_reply_value(value[key], identity=identity)
+		return value
+	if isinstance(value, list):
+		for index, item in enumerate(value):
+			value[index] = _redact_reply_value(item, identity=identity)
+		return value
+	if not isinstance(value, str):
+		return value
+	text = redact_contact_text(value)
+	if len(identity) >= 2:
+		text = text.replace(identity, "[姓名已脱敏]")
+	return text
+
+
 def build_reply_messages(
 	jd_text: str,
 	evaluation: dict[str, Any],
 	conversation: str,
 	intent: str,
 ) -> list[dict[str, str]]:
+	identity = str(evaluation.get("candidate_name") or "").strip()
+	safe_evaluation = json_clone(evaluation)
+	if isinstance(safe_evaluation, dict):
+		safe_evaluation.pop("candidate_name", None)
+		_redact_reply_value(safe_evaluation, identity=identity)
+	safe_conversation = redact_contact_text(conversation)
+	if len(identity) >= 2:
+		safe_conversation = safe_conversation.replace(identity, "[姓名已脱敏]")
 	payload = {
 		"job_description": redact_contact_text(jd_text),
-		"evaluation": evaluation,
-		"conversation": redact_contact_text(conversation)[-6000:],
+		"evaluation": safe_evaluation,
+		"conversation": safe_conversation[-6000:],
 		"intent": intent,
 		"output_schema": {
 			"intent": "string", "reply": "string", "reason": "string",

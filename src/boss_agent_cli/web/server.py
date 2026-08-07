@@ -17,28 +17,35 @@ from urllib.parse import parse_qs, unquote, urlparse
 from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleError
 from boss_agent_cli.web.tasks import TaskManager
 
-MAX_JSON_BODY = 32 * 1024 * 1024
+MAX_JSON_BODY = 64 * 1024 * 1024
 _ASSET_TYPES = {
 	"index.html": "text/html; charset=utf-8",
 	"app.js": "text/javascript; charset=utf-8",
 	"styles.css": "text/css; charset=utf-8",
 }
-_ASYNC_PATHS = {"/api/auth/login", "/api/screen/local", "/api/screen/boss"}
+_ASYNC_PATHS = {
+	"/api/auth/login",
+	"/api/screen/local",
+	"/api/screen/boss",
+	"/api/jobs/analyze",
+}
 
 
 class RecruiterWebApplication:
-	"""Route Web API calls to a controller and background task registry."""
+	"""Route Web API calls to a controller and persistent background task registry."""
 
 	def __init__(self, controller: RecruiterWebController, *, token: str | None = None):
 		self.controller = controller
 		self.token = token or secrets.token_urlsafe(24)
-		self.tasks = TaskManager()
+		self.tasks = TaskManager(storage_path=controller.data_dir / "recruiter-ai" / "web_tasks.db")
 
 	def asset(self, name: str) -> tuple[bytes, str]:
 		asset = files("boss_agent_cli.web.assets").joinpath(name)
 		if not asset.is_file():
 			raise FileNotFoundError(name)
 		content = asset.read_bytes()
+		if name == "styles.css":
+			content += b"\n" + files("boss_agent_cli.web.assets").joinpath("layout.css").read_bytes()
 		if name in {"index.html", "app.js"}:
 			content = content.replace(b"__BOSS_WEB_TOKEN__", self.token.encode("utf-8"))
 		return content, _ASSET_TYPES.get(name, "application/octet-stream")
@@ -48,7 +55,7 @@ class RecruiterWebApplication:
 
 	def get(self, path: str, query: dict[str, list[str]]) -> Any:
 		if path == "/api/bootstrap":
-			return {**self.controller.bootstrap(), "tasks": self.tasks.recent(limit=10)}
+			return {**self.controller.bootstrap(), "tasks": self.tasks.recent(limit=20)}
 		if path == "/api/jobs":
 			return {"items": self.controller.list_jobs()}
 		if path.startswith("/api/jobs/"):
@@ -57,6 +64,10 @@ class RecruiterWebApplication:
 			return self.controller.candidates(
 				_query_one(query, "job_key"), top=_query_int(query, "top", 200),
 			)
+		if path == "/api/analytics":
+			return self.controller.analytics(_query_one(query, "job_key"))
+		if path == "/api/export/candidates":
+			return self.controller.export_candidates(_query_one(query, "job_key"))
 		if path.startswith("/api/candidates/"):
 			return self.controller.candidate_detail(unquote(path.removeprefix("/api/candidates/")))
 		if path == "/api/report":
@@ -68,8 +79,13 @@ class RecruiterWebApplication:
 				evaluation_id=_query_optional(query, "evaluation_id"),
 				limit=_query_int(query, "limit", 100),
 			)}
+		if path == "/api/audit":
+			return {"items": self.controller.audit_events(
+				limit=_query_int(query, "limit", 100),
+				action=_query_optional(query, "action"),
+			)}
 		if path == "/api/tasks":
-			return {"items": self.tasks.recent(limit=_query_int(query, "limit", 20))}
+			return {"items": self.tasks.recent(limit=_query_int(query, "limit", 50))}
 		if path.startswith("/api/tasks/"):
 			task = self.tasks.get(unquote(path.removeprefix("/api/tasks/")))
 			if task is None:
@@ -82,27 +98,43 @@ class RecruiterWebApplication:
 	def post(self, path: str, payload: dict[str, Any]) -> Any:
 		if path == "/api/jobs":
 			return self.controller.save_job(payload)
+		if path == "/api/jobs/analyze":
+			return self.tasks.submit(
+				"analyze-job",
+				lambda progress: self.controller.analyze_job(payload, progress=progress),
+				metadata={"title": "AI 分析岗位 JD"},
+			)
 		if path == "/api/settings/ai":
 			return self.controller.configure_ai(payload)
 		if path == "/api/settings/mode":
 			return self.controller.set_operating_mode(str(payload.get("mode") or ""))
 		if path == "/api/auth/login":
-			return self.tasks.submit("login", lambda progress: self.controller.login(
-				timeout=int(payload.get("timeout", 180)),
-				cookie_source=str(payload.get("cookie_source") or "") or None,
-				force_cdp=bool(payload.get("force_cdp", False)),
-				progress=progress,
-			))
+			return self.tasks.submit(
+				"login",
+				lambda progress: self.controller.login(
+					timeout=int(payload.get("timeout", 180)),
+					cookie_source=str(payload.get("cookie_source") or "") or None,
+					force_cdp=bool(payload.get("force_cdp", False)),
+					progress=progress,
+				),
+				metadata={"title": "BOSS 登录"},
+			)
 		if path == "/api/screen/local":
 			return self.tasks.submit(
-				"screen-local", lambda progress: self.controller.screen_local(payload, progress=progress),
+				"screen-local",
+				lambda progress: self.controller.screen_local(payload, progress=progress),
+				metadata={"title": "本地简历筛选", "job_key": payload.get("job_key")},
 			)
 		if path == "/api/screen/boss":
 			return self.tasks.submit(
-				"screen-boss", lambda progress: self.controller.screen_boss(payload, progress=progress),
+				"screen-boss",
+				lambda progress: self.controller.screen_boss(payload, progress=progress),
+				metadata={"title": "BOSS 候选人筛选", "job_key": payload.get("job_key")},
 			)
 		if path == "/api/replies":
 			return self.controller.generate_reply(payload)
+		if path == "/api/candidates/bulk-status":
+			return self.controller.bulk_mark_candidates(payload)
 		if path.startswith("/api/candidates/") and path.endswith("/status"):
 			evaluation_id = unquote(path[len("/api/candidates/"):-len("/status")].strip("/"))
 			return self.controller.mark_candidate(
@@ -117,7 +149,7 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 	"""Serve the single-page UI and JSON API."""
 
 	application: RecruiterWebApplication
-	server_version = "BossRecruiterWeb/1.0"
+	server_version = "BossRecruiterWeb/2.0"
 
 	def do_GET(self) -> None:  # noqa: N802
 		parsed = urlparse(self.path)
@@ -166,15 +198,25 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 		return False
 
 	def _read_json(self) -> dict[str, Any]:
-		length = int(self.headers.get("Content-Length", "0"))
+		try:
+			length = int(self.headers.get("Content-Length", "0"))
+		except ValueError as exc:
+			raise WebConsoleError("INVALID_LENGTH", "Content-Length 无效", status=400) from exc
 		if length <= 0:
 			return {}
 		if length > MAX_JSON_BODY:
-			raise WebConsoleError("PAYLOAD_TOO_LARGE", "请求内容超过 32 MB", status=413)
+			raise WebConsoleError("PAYLOAD_TOO_LARGE", "请求内容超过 64 MB", status=413)
 		payload = json.loads(self.rfile.read(length).decode("utf-8"))
 		if not isinstance(payload, dict):
 			raise WebConsoleError("INVALID_JSON", "JSON 顶层必须是对象")
 		return payload
+
+	def _security_headers(self) -> None:
+		self.send_header("Cache-Control", "no-store")
+		self.send_header("X-Content-Type-Options", "nosniff")
+		self.send_header("X-Frame-Options", "DENY")
+		self.send_header("Referrer-Policy", "no-referrer")
+		self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
 	def _send_asset(self, name: str) -> None:
 		try:
@@ -185,11 +227,10 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 		self.send_response(HTTPStatus.OK)
 		self.send_header("Content-Type", content_type)
 		self.send_header("Content-Length", str(len(content)))
-		self.send_header("Cache-Control", "no-store")
-		self.send_header("X-Content-Type-Options", "nosniff")
+		self._security_headers()
 		self.send_header(
 			"Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 		)
 		self.end_headers()
 		self.wfile.write(content)
@@ -199,8 +240,7 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 		self.send_response(status)
 		self.send_header("Content-Type", "application/json; charset=utf-8")
 		self.send_header("Content-Length", str(len(body)))
-		self.send_header("Cache-Control", "no-store")
-		self.send_header("X-Content-Type-Options", "nosniff")
+		self._security_headers()
 		self.end_headers()
 		self.wfile.write(body)
 
@@ -212,7 +252,7 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 		self.send_response(error.status)
 		self.send_header("Content-Type", "application/json; charset=utf-8")
 		self.send_header("Content-Length", str(len(body)))
-		self.send_header("Cache-Control", "no-store")
+		self._security_headers()
 		self.end_headers()
 		self.wfile.write(body)
 
@@ -234,7 +274,10 @@ def _query_optional(query: dict[str, list[str]], name: str) -> str | None:
 
 def _query_int(query: dict[str, list[str]], name: str, default: int) -> int:
 	value = _query_optional(query, name)
-	return int(value) if value is not None else default
+	try:
+		return int(value) if value is not None else default
+	except ValueError as exc:
+		raise WebConsoleError("INVALID_PARAM", f"{name} 必须是整数") from exc
 
 
 def build_server(

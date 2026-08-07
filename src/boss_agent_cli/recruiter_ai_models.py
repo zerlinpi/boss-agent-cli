@@ -17,7 +17,9 @@ PROTECTED_BASIC_FIELDS = {
 	"marital_status", "marriage", "nationality", "photo", "political_status",
 }
 CONTACT_FIELDS = {
-	"contact", "email", "mobile", "phone", "phone_number", "wechat", "weixin",
+	"address", "contact", "email", "home_address", "id_card", "id_number",
+	"identity_number", "mobile", "phone", "phone_number", "qq",
+	"residence_address", "wechat", "weixin",
 }
 RECOMMENDATIONS = {
 	"strong_interview", "interview", "manual_review", "not_recommended",
@@ -123,6 +125,24 @@ def _strip_fields(value: Any, fields: set[str]) -> None:
 			_strip_fields(item, fields)
 
 
+def _redact_text_values(value: Any, *, identity: str) -> Any:
+	"""Recursively redact contact details and the candidate name from free text."""
+	if isinstance(value, dict):
+		for key in list(value):
+			value[key] = _redact_text_values(value[key], identity=identity)
+		return value
+	if isinstance(value, list):
+		for index, item in enumerate(value):
+			value[index] = _redact_text_values(item, identity=identity)
+		return value
+	if not isinstance(value, str):
+		return value
+	text = redact_contact_text(value)
+	if len(identity) >= 2 and identity != "candidate":
+		text = text.replace(identity, "[姓名已脱敏]")
+	return text
+
+
 def normalize_resume(payload: dict[str, Any]) -> dict[str, Any]:
 	"""Unwrap CLI envelopes, parse raw BOSS payloads, and remove protected data."""
 	data: dict[str, Any] = payload
@@ -135,11 +155,13 @@ def normalize_resume(payload: dict[str, Any]) -> dict[str, Any]:
 
 def redact_resume_for_model(resume: dict[str, Any]) -> dict[str, Any]:
 	"""Create a model payload without identity, contact, or protected fields."""
+	identity = candidate_name(resume, fallback="")
 	redacted = cast("dict[str, Any]", json_clone(resume))
 	_strip_fields(
 		redacted,
 		{field.lower() for field in PROTECTED_BASIC_FIELDS | CONTACT_FIELDS | {"name", "candidate_name"}},
 	)
+	_redact_text_values(redacted, identity=identity)
 	basic = redacted.get("basic")
 	if isinstance(basic, dict):
 		basic["name"] = "candidate"
@@ -147,8 +169,10 @@ def redact_resume_for_model(resume: dict[str, Any]) -> dict[str, Any]:
 
 
 def redact_contact_text(text: str) -> str:
-	text = re.sub(r"(?<!\d)1[3-9]\d{9}(?!\d)", "[手机号已脱敏]", text)
+	text = re.sub(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d(?:[- ]?\d){8}(?!\d)", "[手机号已脱敏]", text)
 	text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[邮箱已脱敏]", text)
+	text = re.sub(r"(?<!\d)\d{17}[\dXx](?!\d)|(?<!\d)\d{15}(?!\d)", "[身份证号已脱敏]", text)
+	text = re.sub(r"(?:QQ|qq)\s*[:：]?\s*[1-9]\d{4,11}", "[QQ 已脱敏]", text)
 	return re.sub(r"(?:微信|微信号|wechat|weixin)\s*[:：]?\s*[A-Za-z0-9_-]{5,}", "[微信已脱敏]", text, flags=re.I)
 
 
