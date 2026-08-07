@@ -13,10 +13,27 @@ from boss_agent_cli.recruiter_reply_safety import scan_reply_safety
 _LOCAL_CONTACT_FIELDS = {
 	"contact", "email", "mobile", "phone", "phone_number", "qq", "wechat", "weixin",
 }
-_LOCAL_DROP_FIELDS = {
-	field.lower()
-	for field in model_module.PROTECTED_BASIC_FIELDS | (model_module.CONTACT_FIELDS - _LOCAL_CONTACT_FIELDS)
+_EXTRA_LOCAL_CONTACT_FIELDS = {"联系方式", "邮箱", "手机", "手机号", "电话", "微信", "微信号"}
+_EXTRA_PROTECTED_FIELDS = {
+	"sex", "sex_desc", "race", "ethnicity", "religion", "health", "health_status",
+	"disability", "pregnancy", "pregnancy_status", "fertility", "fertility_status",
+	"年龄", "性别", "婚姻", "婚姻状况", "出生日期", "生日", "民族", "国籍", "政治面貌",
+	"宗教", "健康", "健康状况", "残疾", "残障", "怀孕", "孕期", "生育状况", "生育计划",
 }
+_IDENTITY_FIELDS = {"name", "candidate_name", "geek_name", "姓名", "候选人姓名"}
+_NON_OPERATIONAL_LOCAL_FIELDS = (
+	model_module.CONTACT_FIELDS - _LOCAL_CONTACT_FIELDS
+) | {
+	"idcard", "idnumber", "identitynumber", "身份证", "身份证号",
+	"address", "homeaddress", "residenceaddress", "住址", "家庭住址", "详细地址",
+}
+_MODEL_DROP_FIELDS = (
+	model_module.PROTECTED_BASIC_FIELDS
+	| model_module.CONTACT_FIELDS
+	| _EXTRA_PROTECTED_FIELDS
+	| _EXTRA_LOCAL_CONTACT_FIELDS
+	| _IDENTITY_FIELDS
+)
 
 _BASE_REDACT_CONTACT = model_module.redact_contact_text
 _BASE_REDACT_RESUME = model_module.redact_resume_for_model
@@ -27,6 +44,7 @@ _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _WECHAT_RE = re.compile(r"(?:微信|微信号|wechat|weixin)\s*[:：]?\s*([A-Za-z0-9_-]{5,})", re.I)
 _QQ_RE = re.compile(r"(?:QQ|qq)\s*[:：]?\s*([1-9]\d{4,11})")
 _ID_NUMBER_RE = re.compile(r"(?<!\d)(?:\d{17}[\dXx]|\d{15})(?!\d)")
+_FIELD_NORMALIZER = re.compile(r"[^a-z0-9\u4e00-\u9fff]+")
 
 _PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 	(
@@ -41,7 +59,7 @@ _PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 	(re.compile(r"(?:年龄|age)\s*[:：]?\s*\d{1,3}\s*(?:岁|years?\s*old)?", re.I), "[年龄已隔离]"),
 	(re.compile(r"(?<!\d)(?:1[6-9]|[2-6]\d)\s*岁(?!\d)"), "[年龄已隔离]"),
 	(re.compile(r"(?<!\d)(?:1[6-9]|[2-6]\d)\s*years?\s*old\b", re.I), "[年龄已隔离]"),
-	(re.compile(r"(?:性别|gender)\s*[:：]?\s*(?:男|女|male|female)", re.I), "[性别已隔离]"),
+	(re.compile(r"(?:性别|gender|sex)\s*[:：]?\s*(?:男|女|male|female)", re.I), "[性别已隔离]"),
 	(re.compile(r"(^|[\s|｜,，;；/])(?:男|女)(?=$|[\s|｜,，;；/])", re.M), r"\1[性别已隔离]"),
 	(re.compile(r"\b(?:male|female)\b", re.I), "[性别已隔离]"),
 	(
@@ -52,10 +70,43 @@ _PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 		),
 		"[出生日期已隔离]",
 	),
-	(re.compile(r"(?:民族|ethnicity)\s*[:：]?\s*[^,，;；\n]{1,20}", re.I), "[民族信息已隔离]"),
+	(re.compile(r"(?:民族|ethnicity|race)\s*[:：]?\s*[^,，;；\n]{1,20}", re.I), "[民族信息已隔离]"),
 	(re.compile(r"(?:国籍|nationality)\s*[:：]?\s*[^,，;；\n]{1,20}", re.I), "[国籍信息已隔离]"),
 	(re.compile(r"(?:政治面貌|political\s*status)\s*[:：]?\s*[^,，;；\n]{1,30}", re.I), "[政治面貌已隔离]"),
+	(re.compile(r"(?:宗教|religion)\s*[:：]?\s*[^,，;；\n]{1,30}", re.I), "[宗教信息已隔离]"),
+	(re.compile(r"(?:健康状况|health\s*status)\s*[:：]?\s*[^,，;；\n]{1,40}", re.I), "[健康信息已隔离]"),
+	(re.compile(r"(?:残疾状况|残障状况|disability)\s*[:：]?\s*[^,，;；\n]{1,40}", re.I), "[残障信息已隔离]"),
+	(
+		re.compile(
+			r"(?:怀孕情况|孕期|生育状况|生育计划|pregnancy\s*status|fertility\s*status)"
+			r"\s*[:：]?\s*[^,，;；\n]{1,40}",
+			re.I,
+		),
+		"[孕育信息已隔离]",
+	),
 )
+
+
+def _canonical_field(value: str) -> str:
+	return _FIELD_NORMALIZER.sub("", value.casefold())
+
+
+def _canonical_fields(fields: set[str]) -> set[str]:
+	return {_canonical_field(field) for field in fields}
+
+
+_LOCAL_DROP_CANONICAL = _canonical_fields(_NON_OPERATIONAL_LOCAL_FIELDS)
+_MODEL_DROP_CANONICAL = _canonical_fields(_MODEL_DROP_FIELDS)
+_CONTACT_KEY_MAP = {
+	_canonical_field(key): kind
+	for kind, keys in {
+		"phone": {"phone", "phone_number", "mobile", "手机", "手机号", "电话"},
+		"email": {"email", "邮箱"},
+		"wechat": {"wechat", "weixin", "微信", "微信号"},
+		"qq": {"qq"},
+	}.items()
+	for key in keys
+}
 
 
 def _looks_like_raw_boss_resume(payload: dict[str, Any]) -> bool:
@@ -70,7 +121,7 @@ def _looks_like_raw_boss_resume(payload: dict[str, Any]) -> bool:
 def _strip_fields(value: Any, fields: set[str]) -> None:
 	if isinstance(value, dict):
 		for key in list(value):
-			if key.lower() in fields:
+			if _canonical_field(str(key)) in fields:
 				value.pop(key, None)
 			else:
 				_strip_fields(value[key], fields)
@@ -95,20 +146,22 @@ def _remove_non_operational_identifiers(value: Any) -> Any:
 
 
 def normalize_resume(payload: dict[str, Any]) -> dict[str, Any]:
-	"""Normalize a resume while retaining operational contact fields locally."""
+	"""Normalize a resume while retaining recruiter-useful local fields and contact methods."""
 	data: dict[str, Any] = payload
 	if payload.get("ok") is True and isinstance(payload.get("data"), dict):
 		data = cast("dict[str, Any]", payload["data"])
 	data = parse_resume(data) if _looks_like_raw_boss_resume(data) else cast(
 		"dict[str, Any]", model_module.json_clone(data)
 	)
-	_strip_fields(data, _LOCAL_DROP_FIELDS)
+	# Keep resume facts locally for the human recruiter, but remove identity numbers and full addresses.
+	_strip_fields(data, _LOCAL_DROP_CANONICAL)
 	return cast("dict[str, Any]", _remove_non_operational_identifiers(data))
 
 
 def redact_text_for_model(text: str) -> str:
 	"""Remove contact and protected-trait text before sending content to a model."""
 	redacted = _BASE_REDACT_CONTACT(text)
+	redacted = _LANDLINE_RE.sub("[座机已脱敏]", redacted)
 	for pattern, replacement in _PROTECTED_TEXT_PATTERNS:
 		redacted = pattern.sub(replacement, redacted)
 	return redacted
@@ -127,8 +180,11 @@ def _redact_protected_text_values(value: Any) -> Any:
 
 
 def redact_resume_for_model(resume: dict[str, Any]) -> dict[str, Any]:
-	"""Create a model-safe resume while the locally stored resume keeps contacts."""
+	"""Create a model-safe resume while the locally stored resume keeps recruiter-useful data."""
 	redacted = _BASE_REDACT_RESUME(resume)
+	# Base redaction historically matched snake_case keys exactly. Re-run using canonical keys so
+	# camelCase, Chinese labels, and common aliases cannot leak structured protected fields.
+	_strip_fields(redacted, _MODEL_DROP_CANONICAL)
 	return cast("dict[str, Any]", _redact_protected_text_values(redacted))
 
 
@@ -144,10 +200,6 @@ def install_model_sanitizer() -> None:
 def extract_contact_details(resume: dict[str, Any]) -> dict[str, list[str]]:
 	"""Extract operational contact methods from structured fields and resume text."""
 	contacts: dict[str, list[str]] = {"phone": [], "email": [], "wechat": [], "qq": []}
-	key_map = {
-		"phone": "phone", "phone_number": "phone", "mobile": "phone",
-		"email": "email", "wechat": "wechat", "weixin": "wechat", "qq": "qq",
-	}
 
 	def add(kind: str, value: str) -> None:
 		text = value.strip()
@@ -176,9 +228,9 @@ def extract_contact_details(resume: dict[str, Any]) -> dict[str, list[str]]:
 	def walk(value: Any) -> None:
 		if isinstance(value, dict):
 			for child_key, child in value.items():
-				normalized_key = str(child_key).lower()
-				if normalized_key in key_map and isinstance(child, (str, int, float)):
-					add(key_map[normalized_key], str(child))
+				kind = _CONTACT_KEY_MAP.get(_canonical_field(str(child_key)))
+				if kind and isinstance(child, (str, int, float)):
+					add(kind, str(child))
 				walk(child)
 			return
 		if isinstance(value, list):
