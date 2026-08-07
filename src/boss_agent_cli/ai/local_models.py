@@ -160,6 +160,14 @@ def _write_registry(path: Path, rows: list[ImportedLocalModel]) -> None:
 		temporary.unlink(missing_ok=True)
 
 
+def _is_within(path: Path, parent: Path) -> bool:
+	try:
+		path.relative_to(parent)
+	except ValueError:
+		return False
+	return True
+
+
 def import_local_model(data_dir: Path, source: Path, model: str) -> ImportedLocalModel:
 	"""Copy an external model artifact into the user data directory and register it."""
 	if not source.exists():
@@ -170,8 +178,20 @@ def import_local_model(data_dir: Path, source: Path, model: str) -> ImportedLoca
 	target_dir = data_dir / "models" / _safe_model_dir(model_name)
 	target_dir.mkdir(parents=True, exist_ok=True)
 	target = target_dir / source.name
+	resolved_source = source.resolve()
+	resolved_target = target.resolve(strict=False)
+	# Re-importing a managed directory could otherwise copy the source into one of its own children
+	# indefinitely. A file already at the exact managed target can simply be re-registered.
+	already_managed_file = source.is_file() and resolved_source == resolved_target
+	if source.is_dir() and _is_within(resolved_target, resolved_source):
+		raise LocalModelManifestError(
+			"MODEL_IMPORT_FAILED",
+			"model import target is inside the source directory; choose a source outside the managed model directory",
+		)
 	try:
-		if source.is_dir():
+		if already_managed_file:
+			pass
+		elif source.is_dir():
 			if target.exists():
 				shutil.rmtree(target)
 			shutil.copytree(source, target)
