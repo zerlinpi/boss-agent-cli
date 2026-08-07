@@ -86,12 +86,24 @@ def local_pull_cmd(ctx: click.Context, model: str, confirm_download: bool) -> No
 			recoverable=True,
 			recovery_action=f"boss ai local pull --model {model} --confirm-download",
 		)
-	result = subprocess.run(
-		["ollama", "pull", model],
-		check=False,
-		capture_output=True,
-		text=True,
-	)
+		return
+	try:
+		result = subprocess.run(
+			["ollama", "pull", model],
+			check=False,
+			capture_output=True,
+			text=True,
+		)
+	except OSError as exc:
+		handle_error_output(
+			ctx,
+			"ai.local.pull",
+			code="LOCAL_MODEL_PULL_FAILED",
+			message=f"无法启动 Ollama: {exc}",
+			recoverable=True,
+			recovery_action="确认 Ollama 已安装并位于 PATH 后重试",
+		)
+		return
 	if result.returncode != 0:
 		handle_error_output(
 			ctx,
@@ -101,6 +113,7 @@ def local_pull_cmd(ctx: click.Context, model: str, confirm_download: bool) -> No
 			recoverable=True,
 			recovery_action="确认 Ollama 已安装并可访问网络后重试",
 		)
+		return
 	handle_output(ctx, "ai.local.pull", {"status": "installed", "model": model})
 
 
@@ -121,6 +134,7 @@ def local_import_cmd(ctx: click.Context, source_path: Path, model: str) -> None:
 			recoverable=True,
 			recovery_action="检查模型路径和 manifest 后重试",
 		)
+		return
 	store = AIConfigStore(ctx.obj["data_dir"])
 	store.save_config(ai_provider="custom", ai_model=model, ai_base_url=None)
 	store.save_api_key("local")
@@ -167,4 +181,5 @@ def local_smoke_cmd(ctx: click.Context) -> None:
 			recoverable=True,
 			recovery_action="确认本地模型服务已启动后重试",
 		)
+		return
 	handle_output(ctx, "ai.local.smoke", {"status": "ok", "model": str(model), "reply": reply[:200]})
