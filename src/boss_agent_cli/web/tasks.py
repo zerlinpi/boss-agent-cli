@@ -13,10 +13,16 @@ from typing import Any, Callable
 from uuid import uuid4
 
 TaskFunction = Callable[[Callable[[int, str], None]], dict[str, Any]]
+_CORRUPT_DB_MARKERS = ("malformed", "file is not a database", "database disk image")
 
 
 def _now() -> str:
 	return datetime.now(timezone.utc).isoformat()
+
+
+def _is_corrupt_database_error(exc: sqlite3.DatabaseError) -> bool:
+	message = str(exc).lower()
+	return any(marker in message for marker in _CORRUPT_DB_MARKERS)
 
 
 def _scrub_result(value: Any, evaluation_ids: set[str]) -> tuple[Any, bool]:
@@ -66,10 +72,42 @@ class TaskManager:
 		self._db: sqlite3.Connection | None = None
 		if storage_path is not None:
 			storage_path.parent.mkdir(parents=True, exist_ok=True)
-			self._db = sqlite3.connect(storage_path, check_same_thread=False, timeout=5.0)
-			self._db.row_factory = sqlite3.Row
-			self._initialize_db()
-			self._load_from_db()
+			try:
+				self._open_database(storage_path)
+			except sqlite3.DatabaseError as exc:
+				if not _is_corrupt_database_error(exc):
+					self._close_database()
+					raise
+				self._recover_corrupt_database(storage_path)
+				self._open_database(storage_path)
+
+	def _open_database(self, storage_path: Path) -> None:
+		self._db = sqlite3.connect(storage_path, check_same_thread=False, timeout=5.0)
+		self._db.row_factory = sqlite3.Row
+		self._initialize_db()
+		self._load_from_db()
+
+	def _close_database(self) -> None:
+		if self._db is None:
+			return
+		try:
+			self._db.close()
+		except sqlite3.Error:
+			pass
+		self._db = None
+
+	def _recover_corrupt_database(self, storage_path: Path) -> None:
+		"""Quarantine a confirmed-corrupt task DB and rebuild only task history storage."""
+		self._close_database()
+		stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+		quarantine = storage_path.with_name(f"{storage_path.name}.corrupt-{stamp}-{uuid4().hex[:6]}")
+		if storage_path.exists():
+			storage_path.replace(quarantine)
+		for suffix in ("-wal", "-shm"):
+			try:
+				Path(f"{storage_path}{suffix}").unlink()
+			except FileNotFoundError:
+				pass
 
 	def _initialize_db(self) -> None:
 		assert self._db is not None
@@ -320,7 +358,5 @@ class TaskManager:
 
 	def close(self) -> None:
 		self._executor.shutdown(wait=False, cancel_futures=True)
-		if self._db is not None:
-			with self._lock:
-				self._db.close()
-				self._db = None
+		with self._lock:
+			self._close_database()
