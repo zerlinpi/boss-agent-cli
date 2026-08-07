@@ -45,8 +45,8 @@
 	const originalApplyBootstrap = applyBootstrap;
 	applyBootstrap = function applyBootstrapWithCancellingTask() {
 		originalApplyBootstrap();
-		const active = state.tasks.find(task => ["queued", "running", "cancelling"].includes(task.status));
-		if (active && active.id !== state.activeTask) watchTask(active.id);
+		const cancelling = state.tasks.find(task => task.status === "cancelling");
+		if (cancelling && cancelling.id !== state.activeTask) watchTask(cancelling.id);
 	};
 
 	ensureTaskCancelButton();
