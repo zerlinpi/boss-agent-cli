@@ -9,6 +9,7 @@ from boss_agent_cli.ai.service import AIService
 from boss_agent_cli.recruiter_ai_models import (
 	RecruiterAIError,
 	candidate_name,
+	json_clone,
 	normalize_rubric,
 	parse_ai_json,
 	redact_contact_text,
@@ -193,16 +194,41 @@ def recommended_reply_intent(evaluation: dict[str, Any]) -> str:
 	return "decline_draft"
 
 
+def _redact_reply_value(value: Any, *, identity: str) -> Any:
+	if isinstance(value, dict):
+		for key in list(value):
+			value[key] = _redact_reply_value(value[key], identity=identity)
+		return value
+	if isinstance(value, list):
+		for index, item in enumerate(value):
+			value[index] = _redact_reply_value(item, identity=identity)
+		return value
+	if not isinstance(value, str):
+		return value
+	text = redact_contact_text(value)
+	if len(identity) >= 2:
+		text = text.replace(identity, "[姓名已脱敏]")
+	return text
+
+
 def build_reply_messages(
 	jd_text: str,
 	evaluation: dict[str, Any],
 	conversation: str,
 	intent: str,
 ) -> list[dict[str, str]]:
+	identity = str(evaluation.get("candidate_name") or "").strip()
+	safe_evaluation = json_clone(evaluation)
+	if isinstance(safe_evaluation, dict):
+		safe_evaluation.pop("candidate_name", None)
+		_redact_reply_value(safe_evaluation, identity=identity)
+	safe_conversation = redact_contact_text(conversation)
+	if len(identity) >= 2:
+		safe_conversation = safe_conversation.replace(identity, "[姓名已脱敏]")
 	payload = {
 		"job_description": redact_contact_text(jd_text),
-		"evaluation": evaluation,
-		"conversation": redact_contact_text(conversation)[-6000:],
+		"evaluation": safe_evaluation,
+		"conversation": safe_conversation[-6000:],
 		"intent": intent,
 		"output_schema": {
 			"intent": "string", "reply": "string", "reason": "string",
