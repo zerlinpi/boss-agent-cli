@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from boss_agent_cli.recruiter_ai import RecruiterAIError, RecruiterAIStore
+from boss_agent_cli.recruiter_ai import RecruiterAIError, RecruiterAIStore, normalize_rubric
 
 
 def test_job_key_rejects_path_traversal(tmp_path):
@@ -54,3 +54,53 @@ def test_concurrent_job_writes_leave_valid_json_and_no_shared_temp_file(tmp_path
 	payload = json.loads((store.jobs_dir / "java.json").read_text(encoding="utf-8"))
 	assert payload["job_key"] == "java"
 	assert not list(store.jobs_dir.glob(".java.json.*.tmp"))
+
+
+def test_reply_cannot_be_saved_for_missing_evaluation(tmp_path):
+	store = RecruiterAIStore(tmp_path)
+	with pytest.raises(RecruiterAIError, match="评估记录不存在"):
+		store.save_reply(
+			evaluation_id="eval_missing",
+			intent="acknowledge",
+			conversation="",
+			draft={"reply": "收到"},
+		)
+	assert list(store.replies_dir.glob("reply_*.json")) == []
+
+
+def test_rank_pushes_non_finite_legacy_scores_to_bottom(tmp_path):
+	store = RecruiterAIStore(tmp_path)
+	rubric = normalize_rubric()
+	valid = store.save_evaluation(
+		job_key="python",
+		jd_text="Python engineer",
+		resume={"name": "Valid"},
+		evaluation={"total_score": 80, "confidence": 0.8, "recommendation": "interview"},
+		source={"type": "test", "candidate_id": "valid"},
+		rubric=rubric,
+	)
+	legacy = store.save_evaluation(
+		job_key="python",
+		jd_text="Python engineer",
+		resume={"name": "Legacy"},
+		evaluation={"total_score": float("nan"), "confidence": float("inf"), "recommendation": "interview"},
+		source={"type": "test", "candidate_id": "legacy"},
+		rubric=rubric,
+	)
+	ranking = store.rank(job_key="python", top=10)
+	assert ranking[0]["id"] == valid["id"]
+	assert ranking[-1]["id"] == legacy["id"]
+
+
+def test_status_note_is_bounded_for_direct_store_callers(tmp_path):
+	store = RecruiterAIStore(tmp_path)
+	record = store.save_evaluation(
+		job_key="python",
+		jd_text="Python engineer",
+		resume={"name": "Alice"},
+		evaluation={"total_score": 70, "confidence": 0.7, "recommendation": "interview"},
+		source={"type": "test", "candidate_id": "alice"},
+		rubric=normalize_rubric(),
+	)
+	updated = store.set_status(record["id"], "hold", note="x" * 6000)
+	assert len(updated["status_note"]) == 5000
