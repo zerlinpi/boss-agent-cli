@@ -26,6 +26,18 @@ def _utc_now() -> str:
 	return datetime.now(timezone.utc).isoformat()
 
 
+def _safe_storage_key(value: str, *, label: str, max_length: int = 160) -> str:
+	"""Reject path traversal while allowing human-readable local keys such as Chinese job names."""
+	key = value.strip()
+	if not key:
+		raise RecruiterAIError(f"{label} 不能为空")
+	if len(key) > max_length:
+		raise RecruiterAIError(f"{label} 过长")
+	if key in {".", ".."} or "/" in key or "\\" in key or "\x00" in key:
+		raise RecruiterAIError(f"{label} 包含非法路径字符")
+	return key
+
+
 class RecruiterAIStore:
 	"""Persist job profiles, evaluations, candidate state, and reply drafts."""
 
@@ -56,9 +68,7 @@ class RecruiterAIStore:
 		rubric: dict[str, Any] | None = None,
 		metadata: dict[str, Any] | None = None,
 	) -> dict[str, Any]:
-		job_key = job_key.strip()
-		if not job_key:
-			raise RecruiterAIError("job_key 不能为空")
+		job_key = _safe_storage_key(job_key, label="job_key", max_length=128)
 		normalized_rubric = normalize_rubric(rubric)
 		record = {
 			"schema_version": SCHEMA_VERSION,
@@ -73,10 +83,14 @@ class RecruiterAIStore:
 		return record
 
 	def get_job(self, job_key: str) -> dict[str, Any]:
+		job_key = _safe_storage_key(job_key, label="job_key", max_length=128)
 		path = self.jobs_dir / f"{job_key}.json"
 		if not path.is_file():
 			raise RecruiterAIError(f"岗位配置不存在: {job_key}")
-		payload = json.loads(path.read_text(encoding="utf-8"))
+		try:
+			payload = json.loads(path.read_text(encoding="utf-8"))
+		except (OSError, json.JSONDecodeError) as exc:
+			raise RecruiterAIError(f"岗位配置损坏: {job_key}") from exc
 		if not isinstance(payload, dict):
 			raise RecruiterAIError(f"岗位配置损坏: {job_key}")
 		return cast("dict[str, Any]", payload)
@@ -126,10 +140,14 @@ class RecruiterAIStore:
 		return record
 
 	def get_evaluation(self, record_id: str) -> dict[str, Any]:
+		record_id = _safe_storage_key(record_id, label="评估记录 ID")
 		path = self.evaluations_dir / f"{record_id}.json"
 		if not path.is_file():
 			raise RecruiterAIError(f"评估记录不存在: {record_id}")
-		payload = json.loads(path.read_text(encoding="utf-8"))
+		try:
+			payload = json.loads(path.read_text(encoding="utf-8"))
+		except (OSError, json.JSONDecodeError) as exc:
+			raise RecruiterAIError(f"评估记录损坏: {record_id}") from exc
 		if not isinstance(payload, dict):
 			raise RecruiterAIError(f"评估记录损坏: {record_id}")
 		return cast("dict[str, Any]", payload)
@@ -192,6 +210,7 @@ class RecruiterAIStore:
 	def set_status(self, record_id: str, status: str, *, note: str = "") -> dict[str, Any]:
 		if status not in CANDIDATE_STATUSES:
 			raise RecruiterAIError(f"不支持的候选人状态: {status}")
+		record_id = _safe_storage_key(record_id, label="评估记录 ID")
 		record = self.get_evaluation(record_id)
 		record["status"] = status
 		record["status_note"] = note
