@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib.resources import files
+from threading import Lock
 from typing import Any, Callable
 from urllib.parse import unquote, urlparse
 
@@ -15,6 +16,7 @@ from boss_agent_cli.web.deletion import delete_candidate_data, delete_job_data
 _INSTALLED = False
 _SERVER_INSTALLED = False
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+_SCREEN_SUBMIT_LOCK = Lock()
 
 
 def _authority_host(authority: str) -> str:
@@ -126,7 +128,7 @@ def _install_stable_web_candidate_key() -> None:
 
 
 def install_server_extensions(server_module: Any) -> None:
-	"""Install assets, task-aware deletion, and loopback-only request checks."""
+	"""Install assets, screening de-duplication, task-aware deletion, and loopback request checks."""
 	global _SERVER_INSTALLED
 	if _SERVER_INSTALLED:
 		return
@@ -144,6 +146,17 @@ def install_server_extensions(server_module: Any) -> None:
 		return content, content_type
 
 	def post(self: Any, path: str, payload: dict[str, Any]) -> Any:
+		if path in {"/api/screen/local", "/api/screen/boss"}:
+			job_key = str(payload.get("job_key") or "").strip()
+			with _SCREEN_SUBMIT_LOCK:
+				if self.tasks.has_active_screening(job_key or None):
+					raise controller_module.WebConsoleError(
+						"SCREENING_IN_PROGRESS",
+						"该岗位已有筛选任务运行，请等待当前任务结束后再提交",
+						status=409,
+					)
+				return original_post(self, path, payload)
+
 		if path == "/api/jobs" and payload.get("_delete"):
 			job_key = controller_module._safe_identifier(str(payload.get("job_key") or ""), label="岗位标识")
 			if self.tasks.has_active_screening(job_key):
@@ -159,10 +172,7 @@ def install_server_extensions(server_module: Any) -> None:
 
 		if path.startswith("/api/candidates/") and path.endswith("/status") and payload.get("status") == "__delete__":
 			evaluation_id = unquote(path[len("/api/candidates/"):-len("/status")].strip("/"))
-			try:
-				detail = self.controller.candidate_detail(evaluation_id)
-			except Exception:
-				detail = {}
+			detail = self.controller.candidate_detail(evaluation_id)
 			job_key = str(detail.get("job_key") or "") if isinstance(detail, dict) else ""
 			if self.tasks.has_active_screening(job_key or None):
 				raise controller_module.WebConsoleError(
