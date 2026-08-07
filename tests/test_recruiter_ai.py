@@ -2,8 +2,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from boss_agent_cli.recruiter_ai import (
+	CANDIDATE_STATUSES,
 	DEFAULT_DIMENSIONS,
+	RecruiterAIError,
 	RecruiterAIStore,
 	candidate_items,
 	candidate_name,
@@ -39,7 +43,7 @@ class FakeAIService:
 def _dimensions(total: int) -> list[dict[str, Any]]:
 	remaining = total
 	result: list[dict[str, Any]] = []
-	for index, spec in enumerate(DEFAULT_DIMENSIONS):
+	for spec in DEFAULT_DIMENSIONS:
 		max_score = int(spec["max_score"])
 		score = min(max_score, remaining)
 		remaining -= score
@@ -69,7 +73,7 @@ def _evaluation(score: int, *, hard_status: str = "met") -> dict[str, Any]:
 	}
 
 
-def test_normalize_resume_strips_nested_protected_attributes() -> None:
+def test_normalize_resume_keeps_local_recruiter_data_but_model_copy_redacts_it() -> None:
 	payload = {
 		"ok": True,
 		"data": {
@@ -87,9 +91,18 @@ def test_normalize_resume_strips_nested_protected_attributes() -> None:
 
 	result = normalize_resume(payload)
 
-	assert result["basic"] == {"name": "张三", "degree": "本科"}
-	assert "contact" not in result
+	assert result["basic"]["name"] == "张三"
+	assert result["basic"]["gender"] == "男"
+	assert result["basic"]["age"] == "28岁"
+	assert result["basic"]["degree"] == "本科"
+	assert result["contact"]["phone"] == "13800000000"
 	assert candidate_name(result) == "张三"
+
+	model_copy = redact_resume_for_model(result)
+	serialized = json.dumps(model_copy, ensure_ascii=False)
+	for private_value in ("张三", "男", "28岁", "13800000000", "a@example.com"):
+		assert private_value not in serialized
+	assert "本科" in serialized
 
 
 def test_parse_ai_json_accepts_fence_and_leading_text() -> None:
@@ -115,7 +128,7 @@ def test_redact_resume_for_model_scrubs_free_text_identity_and_contacts() -> Non
 	resume = {
 		"basic": {"name": "张三", "degree": "本科"},
 		"raw_text": (
-			"张三，手机 138-0000-0000，邮箱 zhangsan@example.com，"
+			"张三，手机 138-0000-0000，座机 010-12345678，邮箱 zhangsan@example.com，"
 			"微信 weixin: zhangsan88，QQ: 12345678，身份证 110101199001011234。"
 		),
 		"work_experience": [{"description": "张三负责 Java 订单系统"}],
@@ -125,14 +138,45 @@ def test_redact_resume_for_model_scrubs_free_text_identity_and_contacts() -> Non
 	serialized = json.dumps(redacted, ensure_ascii=False)
 
 	for secret in (
-		"张三", "138-0000-0000", "zhangsan@example.com", "zhangsan88",
+		"张三", "138-0000-0000", "010-12345678", "zhangsan@example.com", "zhangsan88",
 		"12345678", "110101199001011234",
 	):
 		assert secret not in serialized
 	assert "[姓名已脱敏]" in serialized
 	assert "[手机号已脱敏]" in serialized
+	assert "[座机已脱敏]" in serialized
 	assert "[邮箱已脱敏]" in serialized
 	assert "[身份证号已脱敏]" in serialized
+
+
+def test_normalize_rubric_rejects_invalid_numeric_contracts() -> None:
+	for value in (0, -1, 0.5, float("nan"), float("inf"), True):
+		with pytest.raises(RecruiterAIError):
+			normalize_rubric({"dimensions": [{"name": "skills", "max_score": value}]})
+
+	for value in (-1, 50.5, float("nan"), float("inf"), True):
+		with pytest.raises(RecruiterAIError):
+			normalize_rubric({"thresholds": {"manual_review": value}})
+
+	for value in ("many", 1.5, float("nan"), True):
+		with pytest.raises(RecruiterAIError):
+			normalize_rubric({"max_questions": value})
+
+
+def test_normalize_rubric_accepts_integral_floats_and_deduplicates_hard_requirements() -> None:
+	rubric = normalize_rubric({
+		"dimensions": [{"name": "skills", "max_score": 100.0}],
+		"thresholds": {"manual_review": 50.0, "interview": 70.0, "strong_interview": 85.0},
+		"hard_requirements": ["Java", " Java ", "", {"requirement": "Java"}, {"requirement": "Python"}],
+		"max_questions": "6",
+	})
+	assert rubric["dimensions"][0]["max_score"] == 100
+	assert rubric["thresholds"]["interview"] == 70
+	assert rubric["hard_requirements"] == [
+		{"requirement": "Java", "required": True},
+		{"requirement": "Python", "required": True},
+	]
+	assert rubric["max_questions"] == 6
 
 
 def test_missing_hard_requirement_forces_manual_review() -> None:
@@ -197,6 +241,7 @@ def test_store_status_and_report(tmp_path: Path) -> None:
 	assert report["total_candidates"] == 1
 	assert report["status_counts"]["interview"] == 1
 	assert report["top_candidates"][0]["status"] == "interview"
+	assert set(report["status_counts"]) == CANDIDATE_STATUSES
 
 
 def test_candidate_reference_and_chat_normalization() -> None:
