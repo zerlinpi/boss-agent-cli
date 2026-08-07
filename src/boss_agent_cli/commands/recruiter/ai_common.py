@@ -22,29 +22,67 @@ from boss_agent_cli.recruiter_ai import (
 )
 
 
-def service_for(ctx: click.Context) -> AIService | None:
+class AIConfigurationError(AIServiceError):
+	"""Raised when recruiter AI configuration is missing or invalid."""
+
+	def __init__(self, message: str, *, recovery_action: str) -> None:
+		super().__init__(message)
+		self.recovery_action = recovery_action
+
+
+def _load_service(ctx: click.Context) -> AIService:
 	store = AIConfigStore(ctx.obj["data_dir"])
 	if not store.is_configured():
-		handle_error_output(
-			ctx, "recruiter-ai", code="AI_NOT_CONFIGURED",
-			message="AI 服务未配置", recoverable=True,
+		raise AIConfigurationError(
+			"AI 服务未配置",
 			recovery_action="boss ai config --provider <provider> --model <model> --api-key <key>",
 		)
-		return None
 	config = store.load_config()
 	api_key, base_url, model = store.get_api_key(), store.get_base_url(), config.get("ai_model")
-	if not api_key or not base_url or not isinstance(model, str):
-		handle_error_output(
-			ctx, "recruiter-ai", code="AI_NOT_CONFIGURED",
-			message="AI 配置不完整", recoverable=True,
-			recovery_action="boss ai config",
+	if not api_key or not base_url or not isinstance(model, str) or not model.strip():
+		raise AIConfigurationError("AI 配置不完整", recovery_action="boss ai config")
+	try:
+		return AIService(
+			base_url=base_url,
+			api_key=api_key,
+			model=model,
+			temperature=float(config.get("ai_temperature", 0.2)),
+			max_tokens=int(config.get("ai_max_tokens", 4096)),
 		)
+	except (AIServiceError, TypeError, ValueError) as exc:
+		raise AIConfigurationError(
+			f"AI 配置无效: {exc}",
+			recovery_action="boss ai config",
+		) from exc
+
+
+class DeferredAIService(AIService):
+	"""Resolve CLI AI configuration only when the first model request is required."""
+
+	def __init__(self, ctx: click.Context) -> None:
+		self._ctx = ctx
+		self._resolved: AIService | None = None
+
+	def chat(
+		self,
+		messages: list[dict[str, Any]],
+		*,
+		temperature: float | None = None,
+		max_tokens: int | None = None,
+	) -> str:
+		if self._resolved is None:
+			self._resolved = _load_service(self._ctx)
+		return self._resolved.chat(messages, temperature=temperature, max_tokens=max_tokens)
+
+
+def service_for(ctx: click.Context, *, deferred: bool = False) -> AIService | None:
+	if deferred:
+		return DeferredAIService(ctx)
+	try:
+		return _load_service(ctx)
+	except AIConfigurationError as exc:
+		emit_ai_error(ctx, "recruiter-ai", exc)
 		return None
-	return AIService(
-		base_url=base_url, api_key=api_key, model=model,
-		temperature=float(config.get("ai_temperature", 0.2)),
-		max_tokens=int(config.get("ai_max_tokens", 4096)),
-	)
 
 
 def emit_input_error(ctx: click.Context, message: str) -> None:
@@ -55,6 +93,13 @@ def emit_input_error(ctx: click.Context, message: str) -> None:
 
 
 def emit_ai_error(ctx: click.Context, command: str, exc: AIServiceError) -> None:
+	if isinstance(exc, AIConfigurationError):
+		handle_error_output(
+			ctx, command, code="AI_NOT_CONFIGURED",
+			message=str(exc), recoverable=True,
+			recovery_action=exc.recovery_action,
+		)
+		return
 	handle_error_output(
 		ctx, command, code="AI_API_ERROR",
 		message=f"AI 服务调用失败: {exc}", recoverable=True,
@@ -161,6 +206,8 @@ def draft_for_records(
 				evaluation_id=str(record.get("id", "")), intent=intent,
 				conversation=conversation, draft=draft,
 			))
+		except AIConfigurationError:
+			raise
 		except (RecruiterAIError, AIServiceError) as exc:
 			failed.append({"evaluation_id": str(record.get("id", "")), "error": str(exc)})
 	return drafts, failed
