@@ -108,3 +108,53 @@ def test_candidates_composite_read_scans_history_once(tmp_path: Path) -> None:
 	assert result["report"]["total_candidates"] == 1
 	assert result["analytics"]["total"] == 1
 	assert calls == 1
+
+
+def test_bootstrap_scans_evaluation_directory_once_for_multiple_jobs(tmp_path: Path, monkeypatch) -> None:
+	controller = RecruiterWebController(tmp_path)
+	rubric = normalize_rubric()
+	controller.store.save_job(job_key="java", jd_text="Java JD", rubric=rubric)
+	controller.store.save_job(job_key="python", jd_text="Python JD", rubric=rubric)
+	controller.store.save_evaluation(
+		job_key="java",
+		jd_text="Java JD",
+		resume={"basic": {"name": "A"}},
+		evaluation=_evaluation(80),
+		source={"type": "zhipin", "geek_id": "g1"},
+		rubric=rubric,
+	)
+	controller.auth_status = lambda: {"logged_in": False, "state": "missing", "summary": "", "health": {}}  # type: ignore[method-assign]
+
+	original_glob = Path.glob
+	evaluation_scans = 0
+
+	def counted_glob(path: Path, pattern: str):
+		nonlocal evaluation_scans
+		if path == controller.store.evaluations_dir and pattern == "eval_*.json":
+			evaluation_scans += 1
+		return original_glob(path, pattern)
+
+	monkeypatch.setattr(Path, "glob", counted_glob)
+	result = controller.bootstrap()
+
+	assert result["onboarding"]["has_candidates"] is True
+	assert evaluation_scans == 1
+
+
+def test_bootstrap_with_no_jobs_does_not_scan_evaluations(tmp_path: Path, monkeypatch) -> None:
+	controller = RecruiterWebController(tmp_path)
+	controller.auth_status = lambda: {"logged_in": False, "state": "missing", "summary": "", "health": {}}  # type: ignore[method-assign]
+	original_glob = Path.glob
+	evaluation_scans = 0
+
+	def counted_glob(path: Path, pattern: str):
+		nonlocal evaluation_scans
+		if path == controller.store.evaluations_dir and pattern == "eval_*.json":
+			evaluation_scans += 1
+		return original_glob(path, pattern)
+
+	monkeypatch.setattr(Path, "glob", counted_glob)
+	result = controller.bootstrap()
+
+	assert result["onboarding"]["has_candidates"] is False
+	assert evaluation_scans == 0
