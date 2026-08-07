@@ -22,7 +22,9 @@
 					body: "{}",
 				});
 				renderTask(task);
-				toast("任务已取消");
+				toast(
+					task.status === "cancelling" ? "取消请求已提交，等待当前操作返回" : "任务已取消",
+				);
 			} catch (error) {
 				toast(error.message || "取消任务失败", "error");
 			} finally {
@@ -38,6 +40,13 @@
 		originalRenderTask(task);
 		const button = ensureTaskCancelButton();
 		if (button) button.hidden = !["queued", "running"].includes(task?.status);
+	};
+
+	const originalApplyBootstrap = applyBootstrap;
+	applyBootstrap = function applyBootstrapWithCancellingTask() {
+		originalApplyBootstrap();
+		const active = state.tasks.find(task => ["queued", "running", "cancelling"].includes(task.status));
+		if (active && active.id !== state.activeTask) watchTask(active.id);
 	};
 
 	ensureTaskCancelButton();
