@@ -4,28 +4,28 @@ $Venv = Join-Path $Root '.venv'
 $VenvPython = Join-Path $Venv 'Scripts\python.exe'
 $Marker = Join-Path $Venv '.recruiter-web-deps.sha256'
 
-function Find-BasePython {
-    $candidates = @()
-    if (Get-Command py -ErrorAction SilentlyContinue) {
-        $candidates += [pscustomobject]@{ Exe = 'py'; Prefix = @('-3.12') }
-        $candidates += [pscustomobject]@{ Exe = 'py'; Prefix = @('-3.11') }
-        $candidates += [pscustomobject]@{ Exe = 'py'; Prefix = @('-3.10') }
+function Test-Python([string]$Executable) {
+    if (-not $Executable -or -not (Test-Path $Executable)) { return $false }
+    try {
+        & $Executable -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" 2>$null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
     }
-    if (Get-Command python -ErrorAction SilentlyContinue) {
-        $candidates += [pscustomobject]@{ Exe = 'python'; Prefix = @() }
-    }
-    foreach ($candidate in $candidates) {
-        try {
-            & $candidate.Exe @($candidate.Prefix) -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" 2>$null
-            if ($LASTEXITCODE -eq 0) { return $candidate }
-        } catch {}
-    }
-    return $null
 }
 
-function Invoke-PythonCommand($PythonCommand, [string[]]$Arguments) {
-    & $PythonCommand.Exe @($PythonCommand.Prefix) @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "Python command failed with exit code $LASTEXITCODE" }
+function Find-BasePython {
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        foreach ($version in @('-3.12','-3.11','-3.10')) {
+            try {
+                $resolved = (& py $version -c "import sys; print(sys.executable)" 2>$null | Select-Object -First 1)
+                if ($LASTEXITCODE -eq 0 -and (Test-Python $resolved)) { return $resolved }
+            } catch {}
+        }
+    }
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCommand -and (Test-Python $pythonCommand.Source)) { return $pythonCommand.Source }
+    return $null
 }
 
 Write-Host ''
@@ -41,8 +41,8 @@ if (-not $BasePython) {
     & winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0) { throw 'Python 3.12 installation failed.' }
     $InstalledPython = Join-Path $env:LocalAppData 'Programs\Python\Python312\python.exe'
-    if (Test-Path $InstalledPython) {
-        $BasePython = [pscustomobject]@{ Exe = $InstalledPython; Prefix = @() }
+    if (Test-Python $InstalledPython) {
+        $BasePython = $InstalledPython
     } else {
         $BasePython = Find-BasePython
     }
@@ -51,7 +51,8 @@ if (-not $BasePython) {
 
 if (-not (Test-Path $VenvPython)) {
     Write-Host '[1/3] Creating isolated Python environment...' -ForegroundColor Cyan
-    Invoke-PythonCommand $BasePython @('-m','venv',$Venv)
+    & $BasePython -m venv $Venv
+    if ($LASTEXITCODE -ne 0) { throw 'Virtual environment creation failed.' }
 }
 
 $hashInput = @()
@@ -59,7 +60,7 @@ foreach ($fileName in @('pyproject.toml','uv.lock')) {
     $filePath = Join-Path $Root $fileName
     if (Test-Path $filePath) { $hashInput += (Get-FileHash $filePath -Algorithm SHA256).Hash }
 }
-$hashInput += 'recruiter-web-bootstrap-v3'
+$hashInput += 'recruiter-web-bootstrap-v4'
 $bytes = [System.Text.Encoding]::UTF8.GetBytes(($hashInput -join '|'))
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $Fingerprint = ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','') } finally { $sha.Dispose() }
