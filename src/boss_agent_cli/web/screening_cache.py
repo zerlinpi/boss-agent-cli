@@ -21,6 +21,23 @@ _EVALUATION_SNAPSHOT: ContextVar[dict[int, list[dict[str, Any]] | None] | None] 
 
 
 @contextmanager
+def evaluation_snapshot_scope(store: Any) -> Iterator[None]:
+	"""Reuse one full evaluation snapshot across composite read/write operations."""
+	snapshot = _EVALUATION_SNAPSHOT.get()
+	store_id = id(store)
+	if snapshot is not None:
+		if store_id not in snapshot:
+			snapshot[store_id] = None
+		yield
+		return
+	token = _EVALUATION_SNAPSHOT.set({store_id: None})
+	try:
+		yield
+	finally:
+		_EVALUATION_SNAPSHOT.reset(token)
+
+
+@contextmanager
 def screening_cache_scope(store: Any, job_key: str) -> Iterator[None]:
 	"""Build one latest-candidate index for a request/screening scope and release it afterwards."""
 	key = (id(store), job_key)
@@ -59,6 +76,7 @@ def install_screening_cache() -> None:
 	original_candidates: Callable[..., dict[str, Any]] = controller_cls.candidates
 	original_report: Callable[..., dict[str, Any]] = controller_cls.report
 	original_analytics: Callable[..., dict[str, Any]] = controller_cls.analytics
+	original_bulk_mark: Callable[..., dict[str, Any]] = controller_cls.bulk_mark_candidates
 	setattr(store_cls, "_boss_uncached_latest_by_candidate", original_latest)
 
 	def list_evaluations(self: Any, *, job_key: str | None = None) -> list[dict[str, Any]]:
@@ -93,15 +111,8 @@ def install_screening_cache() -> None:
 		return record
 
 	def bootstrap(self: Any) -> dict[str, Any]:
-		snapshot = _EVALUATION_SNAPSHOT.get()
-		if snapshot is not None:
+		with evaluation_snapshot_scope(self.store):
 			return original_bootstrap(self)
-		# Lazy None means an installation with no job profiles does not scan evaluations at all.
-		token = _EVALUATION_SNAPSHOT.set({id(self.store): None})
-		try:
-			return original_bootstrap(self)
-		finally:
-			_EVALUATION_SNAPSHOT.reset(token)
 
 	def screen_local(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
 		job_key = str(payload.get("job_key") or "").strip()
@@ -135,6 +146,12 @@ def install_screening_cache() -> None:
 		with screening_cache_scope(self.store, job_key):
 			return original_analytics(self, job_key)
 
+	def bulk_mark_candidates(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+		# Candidate-wide state propagation scans historical versions. A shared snapshot prevents a
+		# 100-candidate bulk action from re-reading the full evaluations directory 100 times.
+		with evaluation_snapshot_scope(self.store):
+			return original_bulk_mark(self, payload)
+
 	setattr(store_cls, "list_evaluations", list_evaluations)
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
 	setattr(store_cls, "save_evaluation", save_evaluation)
@@ -144,3 +161,4 @@ def install_screening_cache() -> None:
 	setattr(controller_cls, "candidates", candidates)
 	setattr(controller_cls, "report", report)
 	setattr(controller_cls, "analytics", analytics)
+	setattr(controller_cls, "bulk_mark_candidates", bulk_mark_candidates)
