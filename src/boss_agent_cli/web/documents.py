@@ -13,7 +13,10 @@ from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
 MAX_DOCUMENT_BYTES = 12 * 1024 * 1024
+MAX_BASE64_CHARS = ((MAX_DOCUMENT_BYTES + 2) // 3) * 4
 MAX_DOCX_EXPANDED_BYTES = 32 * 1024 * 1024
+MAX_DOCX_ENTRIES = 2_000
+MAX_PDF_PAGES = 100
 MAX_EXTRACTED_CHARS = 120_000
 MAX_JSON_CHARS = 500_000
 SUPPORTED_EXTENSIONS = (".json", ".txt", ".md", ".pdf", ".docx")
@@ -37,6 +40,10 @@ def _read_payload(entry: dict[str, Any]) -> tuple[str, bytes]:
 	encoded = entry.get("content_base64")
 	if not isinstance(encoded, str) or not encoded:
 		raise DocumentParseError(f"{name}: 缺少文件内容")
+	# Browser uploads use strict Base64 without whitespace. Reject oversized encoded input before
+	# allocating a decoded buffer that can never pass the raw-file limit.
+	if len(encoded) > MAX_BASE64_CHARS:
+		raise DocumentParseError(f"{name}: 文件超过 12 MB 限制")
 	try:
 		raw = base64.b64decode(encoded, validate=True)
 	except (ValueError, TypeError) as exc:
@@ -49,7 +56,10 @@ def _read_payload(entry: dict[str, Any]) -> tuple[str, bytes]:
 def _parse_docx(raw: bytes) -> str:
 	try:
 		with ZipFile(BytesIO(raw)) as archive:
-			if sum(info.file_size for info in archive.infolist()) > MAX_DOCX_EXPANDED_BYTES:
+			entries = archive.infolist()
+			if len(entries) > MAX_DOCX_ENTRIES:
+				raise DocumentParseError("DOCX 包含过多内部文件")
+			if sum(info.file_size for info in entries) > MAX_DOCX_EXPANDED_BYTES:
 				raise DocumentParseError("DOCX 解压后内容超过 32 MB 限制")
 			names = [
 				name for name in archive.namelist()
@@ -120,6 +130,18 @@ def _parse_pdf(raw: bytes) -> str:
 		return text
 	try:
 		reader = PdfReader(BytesIO(raw))
+	except Exception:
+		text = _fallback_pdf_text(raw)
+		if not text:
+			raise DocumentParseError("PDF 文件损坏、加密或无法提取文本")
+		return text
+	try:
+		page_count = len(reader.pages)
+	except Exception as exc:
+		raise DocumentParseError("PDF 页结构无法读取") from exc
+	if page_count > MAX_PDF_PAGES:
+		raise DocumentParseError(f"PDF 页数超过 {MAX_PDF_PAGES} 页限制")
+	try:
 		parts = [(page.extract_text() or "").strip() for page in reader.pages]
 	except Exception:
 		text = _fallback_pdf_text(raw)
@@ -140,7 +162,11 @@ def parse_uploaded_document(entry: dict[str, Any]) -> tuple[dict[str, Any], dict
 	name = Path(str(entry.get("name") or "resume.json")).name
 	payload = entry.get("payload")
 	if isinstance(payload, dict):
-		if len(json.dumps(payload, ensure_ascii=False)) > MAX_JSON_CHARS:
+		try:
+			serialized = json.dumps(payload, ensure_ascii=False)
+		except (TypeError, ValueError) as exc:
+			raise DocumentParseError(f"{name}: JSON 简历包含无法序列化的数据") from exc
+		if len(serialized) > MAX_JSON_CHARS:
 			raise DocumentParseError(f"{name}: JSON 简历内容过大")
 		return payload, {"type": "web-upload", "filename": name, "format": "json"}
 
