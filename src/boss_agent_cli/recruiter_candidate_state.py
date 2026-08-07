@@ -57,9 +57,13 @@ def install_candidate_state_retention() -> None:
 		if not isinstance(previous, dict):
 			return record
 		status = str(previous.get("status") or "new")
-		if status not in CANDIDATE_STATUSES or status == "new":
+		if status not in CANDIDATE_STATUSES:
 			return record
 		note = str(previous.get("status_note") or "")
+		# Recruiter notes are candidate-level state too. A note entered while the candidate is still
+		# in the default `new` stage must not disappear just because a new AI evaluation version is saved.
+		if status == "new" and not note:
+			return record
 		return self.set_status(str(record.get("id") or ""), status, note=note)
 
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
