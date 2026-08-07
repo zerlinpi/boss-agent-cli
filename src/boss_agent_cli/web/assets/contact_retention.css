@@ -1,0 +1,10 @@
+.contact-retention-section { border-color: #c8d7e8; background: #f8fbff; }
+.contact-retention-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.contact-retention-head h3, .contact-retention-head p { margin: 0; }
+.contact-retention-head p { margin-top: 5px; color: var(--text-soft); font-size: 12px; }
+.contact-retention-list { display: grid; gap: 10px; margin-top: 14px; }
+.contact-retention-row { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 12px; align-items: start; }
+.contact-retention-row > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.contact-value { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 6px 9px; cursor: pointer; font: inherit; }
+.contact-value:hover { border-color: var(--primary); }
+@media (max-width: 560px) { .contact-retention-head { flex-direction: column; } .contact-retention-row { grid-template-columns: 1fr; } }
