@@ -19,6 +19,35 @@ def _now() -> str:
 	return datetime.now(timezone.utc).isoformat()
 
 
+def _scrub_result(value: Any, evaluation_ids: set[str]) -> tuple[Any, bool]:
+	"""Remove deleted candidate references from nested persisted task results."""
+	if isinstance(value, dict):
+		changed = False
+		cleaned: dict[str, Any] = {}
+		for key, item in value.items():
+			if key in {"evaluation_ids", "skipped_ids"} and isinstance(item, list):
+				filtered = [entry for entry in item if str(entry) not in evaluation_ids]
+				cleaned[key] = filtered
+				changed = changed or len(filtered) != len(item)
+				continue
+			child, child_changed = _scrub_result(item, evaluation_ids)
+			cleaned[key] = child
+			changed = changed or child_changed
+		return cleaned, changed
+	if isinstance(value, list):
+		changed = False
+		cleaned_items: list[Any] = []
+		for item in value:
+			if isinstance(item, dict) and str(item.get("evaluation_id") or "") in evaluation_ids:
+				changed = True
+				continue
+			child, child_changed = _scrub_result(item, evaluation_ids)
+			cleaned_items.append(child)
+			changed = changed or child_changed
+		return cleaned_items, changed
+	return value, False
+
+
 class TaskManager:
 	"""Run Web jobs asynchronously and retain task history across restarts."""
 
@@ -37,13 +66,16 @@ class TaskManager:
 		self._db: sqlite3.Connection | None = None
 		if storage_path is not None:
 			storage_path.parent.mkdir(parents=True, exist_ok=True)
-			self._db = sqlite3.connect(storage_path, check_same_thread=False)
+			self._db = sqlite3.connect(storage_path, check_same_thread=False, timeout=5.0)
 			self._db.row_factory = sqlite3.Row
 			self._initialize_db()
 			self._load_from_db()
 
 	def _initialize_db(self) -> None:
 		assert self._db is not None
+		self._db.execute("PRAGMA journal_mode=WAL")
+		self._db.execute("PRAGMA synchronous=NORMAL")
+		self._db.execute("PRAGMA busy_timeout=5000")
 		self._db.execute(
 			"""
 			CREATE TABLE IF NOT EXISTS web_tasks (
@@ -124,7 +156,7 @@ class TaskManager:
 				),
 			)
 			self._db.commit()
-		except sqlite3.ProgrammingError:
+		except sqlite3.Error:
 			return
 
 	def submit(
@@ -201,6 +233,60 @@ class TaskManager:
 				reverse=True,
 			)
 			return deepcopy(items[: max(1, min(limit, 200))])
+
+	def has_active_screening(self, job_key: str | None = None) -> bool:
+		"""Return whether a matching screening task is queued or running."""
+		with self._lock:
+			for task in self._tasks.values():
+				if task.get("status") not in {"queued", "running"}:
+					continue
+				if task.get("kind") not in {"screen-local", "screen-boss"}:
+					continue
+				metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+				result = task.get("result") if isinstance(task.get("result"), dict) else {}
+				task_job_key = str(metadata.get("job_key") or result.get("job_key") or "")
+				if job_key is None or not task_job_key or task_job_key == job_key:
+					return True
+		return False
+
+	def scrub_evaluations(self, evaluation_ids: list[str]) -> int:
+		"""Remove deleted candidate references from all persisted task results."""
+		identifiers = {str(item) for item in evaluation_ids if item}
+		if not identifiers:
+			return 0
+		updated = 0
+		with self._lock:
+			for task in self._tasks.values():
+				result = task.get("result")
+				if not isinstance(result, (dict, list)):
+					continue
+				cleaned, changed = _scrub_result(result, identifiers)
+				if not changed:
+					continue
+				task["result"] = cleaned
+				task["updated_at"] = _now()
+				self._persist(task)
+				updated += 1
+		return updated
+
+	def delete_for_job(self, job_key: str) -> int:
+		"""Delete persisted task records linked to a deleted job."""
+		deleted_ids: list[str] = []
+		with self._lock:
+			for task_id, task in list(self._tasks.items()):
+				metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+				result = task.get("result") if isinstance(task.get("result"), dict) else {}
+				if str(metadata.get("job_key") or result.get("job_key") or "") != job_key:
+					continue
+				deleted_ids.append(task_id)
+				self._tasks.pop(task_id, None)
+			if self._db is not None and deleted_ids:
+				try:
+					self._db.executemany("DELETE FROM web_tasks WHERE id = ?", [(task_id,) for task_id in deleted_ids])
+					self._db.commit()
+				except sqlite3.Error:
+					pass
+		return len(deleted_ids)
 
 	def _prune_locked(self) -> None:
 		if len(self._tasks) <= self._max_tasks:
