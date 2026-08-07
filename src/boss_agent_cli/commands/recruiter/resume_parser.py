@@ -1,7 +1,7 @@
 """招聘者 — 简历数据结构化解析。
 
 将 BOSS 直聘 view_geek 原始响应转为干净的 JSON 结构，
-方便 Agent 和 CLI 消费。
+方便 Agent、CLI 和 Web 招聘工作台消费。
 """
 from __future__ import annotations
 
@@ -14,11 +14,27 @@ def _safe_str(val: Any) -> str:
 	return str(val)
 
 
+def _gender_label(base: dict[str, Any]) -> str:
+	"""Use an explicit label when available and never guess unknown gender codes."""
+	description = base.get("genderDesc")
+	if isinstance(description, str) and description.strip():
+		return description.strip()
+	value = base.get("gender")
+	if value in (1, "1", "男", "male", "Male", "M", "m"):
+		return "男"
+	# Historical BOSS payloads used 0 for female in this parser's original contract.
+	if value in (0, "0", "女", "female", "Female", "F", "f"):
+		return "女"
+	return ""
+
+
 def _parse_base(info: dict[str, Any]) -> dict[str, Any]:
 	base = info.get("geekBaseInfo", {})
+	if not isinstance(base, dict):
+		base = {}
 	return {
 		"name": base.get("name", ""),
-		"gender": "男" if base.get("gender") == 1 else "女",
+		"gender": _gender_label(base),
 		"age": base.get("ageDesc", ""),
 		"degree": base.get("degreeCategory", ""),
 		"work_years": base.get("workYearDesc", ""),
@@ -29,6 +45,8 @@ def _parse_base(info: dict[str, Any]) -> dict[str, Any]:
 
 def _parse_expect(info: dict[str, Any]) -> dict[str, Any]:
 	ex = info.get("showExpectPosition") or {}
+	if not isinstance(ex, dict):
+		ex = {}
 	return {
 		"position": ex.get("positionName", ""),
 		"salary": ex.get("salaryDesc", ""),
@@ -39,6 +57,8 @@ def _parse_expect(info: dict[str, Any]) -> dict[str, Any]:
 def _parse_works(info: dict[str, Any]) -> list[dict[str, Any]]:
 	result = []
 	for w in info.get("geekWorkExpList", []):
+		if not isinstance(w, dict):
+			continue
 		result.append({
 			"company": w.get("company", ""),
 			"position": w.get("positionName", ""),
@@ -48,7 +68,7 @@ def _parse_works(info: dict[str, Any]) -> list[dict[str, Any]]:
 			"duration": w.get("workYearDesc", ""),
 			"responsibility": w.get("responsibility", ""),
 			"performance": w.get("workPerformance", ""),
-			"keywords": w.get("workEmphasis", "").split("#&#") if w.get("workEmphasis") else [],
+			"keywords": w.get("workEmphasis", "").split("#&#") if isinstance(w.get("workEmphasis"), str) and w.get("workEmphasis") else [],
 		})
 	return result
 
@@ -56,6 +76,8 @@ def _parse_works(info: dict[str, Any]) -> list[dict[str, Any]]:
 def _parse_projects(info: dict[str, Any]) -> list[dict[str, Any]]:
 	result = []
 	for p in info.get("geekProjExpList", []):
+		if not isinstance(p, dict):
+			continue
 		result.append({
 			"name": p.get("name", ""),
 			"role": p.get("roleName", ""),
@@ -71,6 +93,8 @@ def _parse_projects(info: dict[str, Any]) -> list[dict[str, Any]]:
 def _parse_education(info: dict[str, Any]) -> list[dict[str, Any]]:
 	result = []
 	for e in info.get("geekEduExpList", []):
+		if not isinstance(e, dict):
+			continue
 		result.append({
 			"school": e.get("school", ""),
 			"major": e.get("major", ""),
@@ -83,31 +107,35 @@ def _parse_education(info: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _parse_competitive(info: dict[str, Any]) -> list[str]:
 	jc = info.get("jobCompetitive") or {}
+	if not isinstance(jc, dict):
+		return []
 	tips = jc.get("tips") or []
-	return [t.get("content", "") for t in tips]
+	if not isinstance(tips, list):
+		return []
+	return [
+		str(t.get("content", ""))
+		for t in tips
+		if isinstance(t, dict) and t.get("content")
+	]
 
 
 def parse_resume(raw: dict[str, Any]) -> dict[str, Any]:
-	"""从 view_geek 响应解析结构化简历。
-
-	Parameters
-	----------
-	raw : dict
-		view_geek 返回的完整响应（含 code/zpData 或 code/data），
-		也可直接传入已解包的数据体。
-
-	Returns
-	-------
-	dict
-		结构化简历：basic / expectation / work_experience /
-		project_experience / education / competitive_analysis / certifications
-	"""
+	"""从 view_geek 响应解析结构化简历。"""
 	payload = raw.get("zpData") if "zpData" in raw else raw.get("data", raw)
 	if not isinstance(payload, dict):
 		payload = {}
 	info = payload.get("geekDetailInfo", {})
+	if not isinstance(info, dict):
+		info = {}
 
-	certs = [_safe_str(c.get("certName")) for c in info.get("geekCertificationList", []) if c.get("certName")]
+	certifications = info.get("geekCertificationList", [])
+	if not isinstance(certifications, list):
+		certifications = []
+	certs = [
+		_safe_str(c.get("certName"))
+		for c in certifications
+		if isinstance(c, dict) and c.get("certName")
+	]
 
 	return {
 		"basic": _parse_base(info),
