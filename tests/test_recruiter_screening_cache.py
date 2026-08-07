@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from boss_agent_cli.recruiter_ai import RecruiterAIStore, normalize_rubric
-from boss_agent_cli.web import RecruiterWebController  # noqa: F401 - installs runtime extensions
+from boss_agent_cli.web import RecruiterWebController  # installs runtime extensions
 from boss_agent_cli.web.screening_cache import screening_cache_scope
 
 
@@ -61,3 +61,50 @@ def test_screening_scope_scans_history_once_and_updates_cache(tmp_path: Path) ->
 
 	store.latest_by_candidate(job_key="java")
 	assert calls == 2
+
+
+def test_nested_scope_loads_each_distinct_job_only_once(tmp_path: Path) -> None:
+	store = RecruiterAIStore(tmp_path)
+	original_list = store.list_evaluations
+	calls: list[str | None] = []
+
+	def counted_list(*, job_key=None):
+		calls.append(job_key)
+		return original_list(job_key=job_key)
+
+	store.list_evaluations = counted_list  # type: ignore[method-assign]
+	with screening_cache_scope(store, "java"):
+		with screening_cache_scope(store, "python"):
+			store.latest_by_candidate(job_key="java")
+			store.latest_by_candidate(job_key="python")
+			store.latest_by_candidate(job_key="python")
+
+	assert calls == ["java", "python"]
+
+
+def test_candidates_composite_read_scans_history_once(tmp_path: Path) -> None:
+	controller = RecruiterWebController(tmp_path)
+	rubric = normalize_rubric()
+	controller.store.save_evaluation(
+		job_key="java",
+		jd_text="JD",
+		resume={"basic": {"name": "A"}},
+		evaluation=_evaluation(80),
+		source={"type": "zhipin", "geek_id": "g1"},
+		rubric=rubric,
+	)
+	original_list = controller.store.list_evaluations
+	calls = 0
+
+	def counted_list(*, job_key=None):
+		nonlocal calls
+		calls += 1
+		return original_list(job_key=job_key)
+
+	controller.store.list_evaluations = counted_list  # type: ignore[method-assign]
+	result = controller.candidates("java", top=20)
+
+	assert result["items"][0]["candidate_name"] == "A"
+	assert result["report"]["total_candidates"] == 1
+	assert result["analytics"]["total"] == 1
+	assert calls == 1
