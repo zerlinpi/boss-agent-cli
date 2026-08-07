@@ -69,7 +69,7 @@ def test_model_payload_sanitizes_compact_resume_demographics():
 	assert "5年 Java 经验" in payload
 
 
-def test_model_payload_handles_camel_case_chinese_aliases_and_landline():
+def test_model_payload_handles_camel_case_chinese_aliases_landline_and_name_in_text():
 	resume = normalize_resume({
 		"candidateName": "王五",
 		"maritalStatus": "已婚",
@@ -78,12 +78,13 @@ def test_model_payload_handles_camel_case_chinese_aliases_and_landline():
 		"healthStatus": "良好",
 		"phoneNumber": "010-12345678",
 		"联系方式": {"微信": "wangwu_2026", "邮箱": "wangwu@example.com"},
-		"raw_text": "健康状况：良好；宗教：无；电话 010-12345678；5年 Python 经验",
+		"raw_text": "王五，健康状况：良好；宗教：无；电话 010-12345678；5年 Python 经验",
 	})
 
 	# Human-facing local data remains available except high-risk identity/address fields.
 	assert resume["maritalStatus"] == "已婚"
 	assert resume["phoneNumber"] == "010-12345678"
+	assert "王五" in resume["raw_text"]
 	contacts = extract_contact_details(resume)
 	assert "010-12345678" in contacts["phone"]
 	assert "wangwu_2026" in contacts["wechat"]
@@ -94,6 +95,7 @@ def test_model_payload_handles_camel_case_chinese_aliases_and_landline():
 	):
 		assert secret not in payload
 	assert "5年 Python 经验" in payload
+	assert "[姓名已脱敏]" in payload
 
 
 def test_reply_model_context_is_sanitized_but_store_keeps_local_conversation(tmp_path):
