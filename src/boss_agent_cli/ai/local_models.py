@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Final
+from uuid import uuid4
 
 APPROVED_LOCAL_MODEL_LICENSES: Final = frozenset({"Apache-2.0", "MIT"})
 RUNTIME_BASE_URLS: Final = {
@@ -67,6 +70,32 @@ RECOMMENDED_MODELS: Final = (
 )
 
 
+def _nonnegative_integer(value: Any, *, field: str) -> int:
+	if isinstance(value, bool):
+		raise LocalModelManifestError("MODEL_MANIFEST_INVALID", f"{field} must be a non-negative integer")
+	try:
+		number = float(value)
+	except (TypeError, ValueError) as exc:
+		raise LocalModelManifestError("MODEL_MANIFEST_INVALID", f"{field} must be a non-negative integer") from exc
+	if not math.isfinite(number) or not number.is_integer() or number < 0:
+		raise LocalModelManifestError("MODEL_MANIFEST_INVALID", f"{field} must be a non-negative integer")
+	return int(number)
+
+
+def _strict_bool(value: Any, *, field: str) -> bool:
+	if isinstance(value, bool):
+		return value
+	if value in (0, 1):
+		return bool(value)
+	if isinstance(value, str):
+		normalized = value.strip().lower()
+		if normalized in {"true", "1", "yes"}:
+			return True
+		if normalized in {"false", "0", "no", ""}:
+			return False
+	raise LocalModelManifestError("MODEL_MANIFEST_INVALID", f"{field} must be a boolean")
+
+
 def parse_model_manifest(raw: dict[str, Any]) -> LocalModelManifest:
 	"""Parse a JSON-compatible local model manifest."""
 	name = str(raw.get("name", "")).strip()
@@ -82,9 +111,9 @@ def parse_model_manifest(raw: dict[str, Any]) -> LocalModelManifest:
 		name=name,
 		runtime=runtime,
 		license=license_name,
-		min_memory_gb=int(raw.get("min_memory_gb", 0)),
+		min_memory_gb=_nonnegative_integer(raw.get("min_memory_gb", 0), field="min_memory_gb"),
 		description=str(raw.get("description", "")),
-		recommended=bool(raw.get("recommended", False)),
+		recommended=_strict_bool(raw.get("recommended", False), field="recommended"),
 	)
 
 
@@ -101,7 +130,10 @@ def read_imported_models(data_dir: Path) -> list[ImportedLocalModel]:
 	path = model_registry_path(data_dir)
 	if not path.exists():
 		return []
-	rows = json.loads(path.read_text(encoding="utf-8"))
+	try:
+		rows = json.loads(path.read_text(encoding="utf-8"))
+	except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+		return []
 	if not isinstance(rows, list):
 		return []
 	return [
@@ -111,33 +143,49 @@ def read_imported_models(data_dir: Path) -> list[ImportedLocalModel]:
 			runtime=str(row.get("runtime", "custom")),
 		)
 		for row in rows
-		if isinstance(row, dict)
+		if isinstance(row, dict) and row.get("model") and row.get("path")
 	]
+
+
+def _write_registry(path: Path, rows: list[ImportedLocalModel]) -> None:
+	path.parent.mkdir(parents=True, exist_ok=True)
+	temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+	try:
+		temporary.write_text(
+			json.dumps([asdict(item) for item in rows], ensure_ascii=False, indent=2),
+			encoding="utf-8",
+		)
+		os.replace(temporary, path)
+	finally:
+		temporary.unlink(missing_ok=True)
 
 
 def import_local_model(data_dir: Path, source: Path, model: str) -> ImportedLocalModel:
 	"""Copy an external model artifact into the user data directory and register it."""
 	if not source.exists():
 		raise LocalModelManifestError("MODEL_SOURCE_NOT_FOUND", f"model source does not exist: {source}")
-	target_dir = data_dir / "models" / _safe_model_dir(model)
+	model_name = model.strip()
+	if not model_name or len(model_name) > 256:
+		raise LocalModelManifestError("MODEL_MANIFEST_INVALID", "model name must be 1-256 characters")
+	target_dir = data_dir / "models" / _safe_model_dir(model_name)
 	target_dir.mkdir(parents=True, exist_ok=True)
 	target = target_dir / source.name
-	if source.is_dir():
-		if target.exists():
-			shutil.rmtree(target)
-		shutil.copytree(source, target)
-	else:
-		shutil.copy2(source, target)
-	imported = ImportedLocalModel(model=model, path=str(target), runtime="custom")
-	rows = read_imported_models(data_dir)
-	rows = [item for item in rows if item.model != model]
+	try:
+		if source.is_dir():
+			if target.exists():
+				shutil.rmtree(target)
+			shutil.copytree(source, target)
+		else:
+			shutil.copy2(source, target)
+	except OSError as exc:
+		raise LocalModelManifestError("MODEL_IMPORT_FAILED", f"failed to copy model source: {exc}") from exc
+	imported = ImportedLocalModel(model=model_name, path=str(target), runtime="custom")
+	rows = [item for item in read_imported_models(data_dir) if item.model != model_name]
 	rows.append(imported)
-	registry = model_registry_path(data_dir)
-	registry.parent.mkdir(parents=True, exist_ok=True)
-	registry.write_text(
-		json.dumps([asdict(item) for item in rows], ensure_ascii=False, indent=2),
-		encoding="utf-8",
-	)
+	try:
+		_write_registry(model_registry_path(data_dir), rows)
+	except OSError as exc:
+		raise LocalModelManifestError("MODEL_IMPORT_FAILED", f"failed to update model registry: {exc}") from exc
 	return imported
 
 
