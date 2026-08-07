@@ -44,6 +44,8 @@ class RecruiterWebApplication:
 		if not asset.is_file():
 			raise FileNotFoundError(name)
 		content = asset.read_bytes()
+		if name == "styles.css":
+			content += b"\n" + files("boss_agent_cli.web.assets").joinpath("layout.css").read_bytes()
 		if name in {"index.html", "app.js"}:
 			content = content.replace(b"__BOSS_WEB_TOKEN__", self.token.encode("utf-8"))
 		return content, _ASSET_TYPES.get(name, "application/octet-stream")
