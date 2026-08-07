@@ -21,6 +21,8 @@ from boss_agent_cli.recruiter_ai import (
 	recommended_reply_intent,
 )
 
+_MAX_RANK_FETCH = 10_000
+
 
 class AIConfigurationError(AIServiceError):
 	"""Raised when recruiter AI configuration is missing or invalid."""
@@ -158,6 +160,29 @@ def evaluate_local(
 	)
 	record.update({"saved": True, "skipped": False})
 	return record
+
+
+def ranked_records_for_run(
+	store: RecruiterAIStore,
+	*,
+	job_key: str,
+	top: int,
+	draft_top: int,
+	processed_ids: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+	"""Return the display ranking and the ranked subset created by the current invocation.
+
+	Automatic draft generation must never silently include historical candidates. When drafts are
+	requested and new evaluations exist, fetch the store's full bounded ranking before filtering so
+	a newly evaluated candidate cannot be hidden behind older high-scoring records.
+	"""
+	fetch_top = _MAX_RANK_FETCH if draft_top > 0 and processed_ids else max(1, top)
+	ranked = store.rank(job_key=job_key, top=fetch_top)
+	if not processed_ids:
+		return ranked, []
+	identifiers = set(processed_ids)
+	current = [record for record in ranked if str(record.get("id") or "") in identifiers]
+	return ranked, current
 
 
 def platform_error(platform: Any, response: Any, fallback: str) -> str:
