@@ -33,6 +33,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 	_MANAGER_INSTALLED = True
 
 	manager_cls = tasks_module.TaskManager
+	original_load_from_db = manager_cls._load_from_db
 	original_prune = manager_cls._prune_locked
 	original_delete_for_job = manager_cls.delete_for_job
 
@@ -63,6 +64,20 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 			})
 			self._persist(task)
 			return deepcopy(task)
+
+	def load_from_db(self: Any) -> None:
+		original_load_from_db(self)
+		for task in self._tasks.values():
+			if task.get("status") != "cancelling":
+				continue
+			task.update({
+				"status": "failed",
+				"message": "服务重启，取消中的任务已终止",
+				"error": {"code": "TASK_CANCELLED", "message": "服务重启，取消中的任务已终止"},
+				"result": None,
+				"updated_at": tasks_module._now(),
+			})
+			self._persist(task)
 
 	def submit(
 		self: Any,
@@ -228,6 +243,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		with self._lock:
 			self._close_database()
 
+	setattr(manager_cls, "_load_from_db", load_from_db)
 	setattr(manager_cls, "submit", submit)
 	setattr(manager_cls, "_run", run)
 	setattr(manager_cls, "cancel", cancel)
