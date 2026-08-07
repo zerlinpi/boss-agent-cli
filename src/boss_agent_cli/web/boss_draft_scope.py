@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from typing import Any, Callable
 
 from boss_agent_cli.web import controller as controller_module
+from boss_agent_cli.web.screening_cache import screening_cache_scope
 
 _INSTALLED = False
 _DRAFT_SCOPE: ContextVar[dict[str, Any] | None] = ContextVar("boss_recruiter_draft_scope", default=None)
@@ -42,21 +43,24 @@ def install_boss_draft_scope() -> None:
 
 	def screen_boss(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
 		job_key = str(payload.get("job_key") or "").strip()
-		existing_ids = {
-			str(record.get("id") or "")
-			for record in self.store.list_evaluations(job_key=job_key)
-			if record.get("id")
-		}
-		token = _DRAFT_SCOPE.set({
-			"job_key": job_key,
-			"existing_ids": existing_ids,
-			"draft_top": payload.get("draft_top", 0),
-			"rank_calls": 0,
-		})
-		try:
+		if not job_key:
 			return original_screen_boss(self, payload, progress=progress)
-		finally:
-			_DRAFT_SCOPE.reset(token)
+		with screening_cache_scope(self.store, job_key):
+			existing_ids = {
+				str(record.get("id") or "")
+				for record in self.store.latest_by_candidate(job_key=job_key).values()
+				if record.get("id")
+			}
+			token = _DRAFT_SCOPE.set({
+				"job_key": job_key,
+				"existing_ids": existing_ids,
+				"draft_top": payload.get("draft_top", 0),
+				"rank_calls": 0,
+			})
+			try:
+				return original_screen_boss(self, payload, progress=progress)
+			finally:
+				_DRAFT_SCOPE.reset(token)
 
 	setattr(store_cls, "rank", rank)
 	setattr(controller_cls, "screen_boss", screen_boss)
