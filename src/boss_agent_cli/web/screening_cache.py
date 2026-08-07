@@ -1,4 +1,4 @@
-"""Per-screening candidate index cache to avoid repeated evaluation-directory scans."""
+"""Per-request candidate index cache to avoid repeated evaluation-directory scans."""
 
 from __future__ import annotations
 
@@ -18,15 +18,17 @@ _SCREEN_CACHE: ContextVar[dict[tuple[int, str], dict[str, dict[str, Any]]] | Non
 
 @contextmanager
 def screening_cache_scope(store: Any, job_key: str) -> Iterator[None]:
-	"""Build one latest-candidate index for a screening run and release it afterwards."""
+	"""Build one latest-candidate index for a request/screening scope and release it afterwards."""
+	key = (id(store), job_key)
+	loader = getattr(store.__class__, "_boss_uncached_latest_by_candidate")
 	scope = _SCREEN_CACHE.get()
 	if scope is not None:
+		# Nested operations may legitimately ask for another job/store. Add that snapshot lazily
+		# instead of silently falling back to repeated disk scans.
+		if key not in scope:
+			scope[key] = loader(store, job_key=job_key)
 		yield
 		return
-	key = (id(store), job_key)
-	# Call the class method currently installed before this module wraps it. The installer stores
-	# that implementation on the class so tests and nested screen wrappers share one snapshot.
-	loader = getattr(store.__class__, "_boss_uncached_latest_by_candidate")
 	cache = {key: loader(store, job_key=job_key)}
 	token = _SCREEN_CACHE.set(cache)
 	try:
@@ -36,7 +38,7 @@ def screening_cache_scope(store: Any, job_key: str) -> Iterator[None]:
 
 
 def install_screening_cache() -> None:
-	"""Cache latest candidate records only while local/BOSS screening is running."""
+	"""Cache latest candidate records during screening and composite read requests."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -48,6 +50,9 @@ def install_screening_cache() -> None:
 	original_save: Callable[..., dict[str, Any]] = store_cls.save_evaluation
 	original_screen_local: Callable[..., dict[str, Any]] = controller_cls.screen_local
 	original_screen_boss: Callable[..., dict[str, Any]] = controller_cls.screen_boss
+	original_candidates: Callable[..., dict[str, Any]] = controller_cls.candidates
+	original_report: Callable[..., dict[str, Any]] = controller_cls.report
+	original_analytics: Callable[..., dict[str, Any]] = controller_cls.analytics
 	setattr(store_cls, "_boss_uncached_latest_by_candidate", original_latest)
 
 	def latest_by_candidate(self: Any, *, job_key: str) -> dict[str, dict[str, Any]]:
@@ -82,7 +87,28 @@ def install_screening_cache() -> None:
 		with screening_cache_scope(self.store, job_key):
 			return original_screen_boss(self, payload, progress=progress)
 
+	def candidates(self: Any, job_key: str, *, top: int = 200) -> dict[str, Any]:
+		if not job_key:
+			return original_candidates(self, job_key, top=top)
+		with screening_cache_scope(self.store, job_key):
+			return original_candidates(self, job_key, top=top)
+
+	def report(self: Any, job_key: str, *, top: int = 10) -> dict[str, Any]:
+		if not job_key:
+			return original_report(self, job_key, top=top)
+		with screening_cache_scope(self.store, job_key):
+			return original_report(self, job_key, top=top)
+
+	def analytics(self: Any, job_key: str) -> dict[str, Any]:
+		if not job_key:
+			return original_analytics(self, job_key)
+		with screening_cache_scope(self.store, job_key):
+			return original_analytics(self, job_key)
+
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
 	setattr(store_cls, "save_evaluation", save_evaluation)
 	setattr(controller_cls, "screen_local", screen_local)
 	setattr(controller_cls, "screen_boss", screen_boss)
+	setattr(controller_cls, "candidates", candidates)
+	setattr(controller_cls, "report", report)
+	setattr(controller_cls, "analytics", analytics)
