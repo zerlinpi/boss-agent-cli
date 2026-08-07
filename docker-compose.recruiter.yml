@@ -1,0 +1,21 @@
+services:
+  recruiter-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.recruiter-web
+    image: boss-recruit-ai:local
+    ports:
+      - "127.0.0.1:${BOSS_WEB_PORT:-8765}:8765"
+    environment:
+      BOSS_DATA_DIR: /data/.boss-agent
+      BOSS_WEB_PORT: "8765"
+      BOSS_CDP_URL: "${BOSS_CDP_URL:-}"
+    volumes:
+      - boss-recruiter-data:/data/.boss-agent
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  boss-recruiter-data:
+    name: boss-recruiter-data
