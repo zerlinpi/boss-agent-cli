@@ -15,10 +15,12 @@ _LOCAL_CONTACT_FIELDS = {
 }
 _EXTRA_LOCAL_CONTACT_FIELDS = {"联系方式", "邮箱", "手机", "手机号", "电话", "微信", "微信号"}
 _EXTRA_PROTECTED_FIELDS = {
-	"sex", "sex_desc", "race", "ethnicity", "religion", "health", "health_status",
-	"disability", "pregnancy", "pregnancy_status", "fertility", "fertility_status",
+	"sex", "sex_desc", "race", "ethnicity", "religion", "religious_affiliation",
+	"health", "health_status", "disability", "pregnancy", "pregnancy_status",
+	"fertility", "fertility_status", "family_status", "political_affiliation", "party_membership",
 	"年龄", "性别", "婚姻", "婚姻状况", "出生日期", "生日", "民族", "国籍", "政治面貌",
-	"宗教", "健康", "健康状况", "残疾", "残障", "怀孕", "孕期", "生育状况", "生育计划",
+	"政治身份", "党派", "宗教", "健康", "健康状况", "残疾", "残障", "怀孕", "孕期",
+	"生育", "生育状况", "生育计划",
 }
 _IDENTITY_FIELDS = {"name", "candidate_name", "geek_name", "姓名", "候选人姓名"}
 _NON_OPERATIONAL_LOCAL_FIELDS = (
@@ -70,17 +72,28 @@ _PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 		),
 		"[出生日期已隔离]",
 	),
+	(re.compile(r"(?:出生于\s*)?(?:19|20)\d{2}\s*年\s*出生"), "[出生日期已隔离]"),
 	(re.compile(r"(?:民族|ethnicity|race)\s*[:：]?\s*[^,，;；\n]{1,20}", re.I), "[民族信息已隔离]"),
 	(re.compile(r"(?:国籍|nationality)\s*[:：]?\s*[^,，;；\n]{1,20}", re.I), "[国籍信息已隔离]"),
-	(re.compile(r"(?:政治面貌|political\s*status)\s*[:：]?\s*[^,，;；\n]{1,30}", re.I), "[政治面貌已隔离]"),
-	(re.compile(r"(?:宗教|religion)\s*[:：]?\s*[^,，;；\n]{1,30}", re.I), "[宗教信息已隔离]"),
+	(re.compile(r"(?:政治面貌|政治身份|党派|political\s*(?:status|affiliation)|party\s*membership)\s*[:：]?\s*[^,，;；\n]{1,30}", re.I), "[政治面貌已隔离]"),
+	(re.compile(r"(?:中共党员|共产党员|共青团员|民主党派成员)"), "[政治面貌已隔离]"),
+	(re.compile(r"(?:宗教|religion|religious\s*affiliation)\s*[:：]?\s*[^,，;；\n]{1,30}", re.I), "[宗教信息已隔离]"),
+	(re.compile(r"(?:佛教徒|基督徒|天主教徒|穆斯林|道教徒)"), "[宗教信息已隔离]"),
 	(re.compile(r"(?:健康状况|health\s*status)\s*[:：]?\s*[^,，;；\n]{1,40}", re.I), "[健康信息已隔离]"),
 	(re.compile(r"(?:残疾状况|残障状况|disability)\s*[:：]?\s*[^,，;；\n]{1,40}", re.I), "[残障信息已隔离]"),
+	(re.compile(r"(?:残疾|残障|视力障碍|听力障碍)"), "[残障信息已隔离]"),
 	(
 		re.compile(
 			r"(?:怀孕情况|孕期|生育状况|生育计划|pregnancy\s*status|fertility\s*status)"
 			r"\s*[:：]?\s*[^,，;；\n]{1,40}",
 			re.I,
+		),
+		"[孕育信息已隔离]",
+	),
+	(
+		re.compile(
+			r"(?:已育|未育|备孕|怀孕|孕妇|育有[一二三四五六七八九十\d]+(?:子|女|个?孩子)|"
+			r"有[一二三四五六七八九十\d]+个孩子)",
 		),
 		"[孕育信息已隔离]",
 	),
