@@ -9,12 +9,14 @@ from boss_agent_cli.recruiter_contact_retention import (
 	redact_text_for_model,
 )
 from boss_agent_cli.recruiter_candidate_identity import install_stable_local_candidate_identity
+from boss_agent_cli.recruiter_candidate_state import install_candidate_state_retention
 from boss_agent_cli.recruiter_identity_safety import install_identity_alias_sanitizer
 
 # Install before recruiter_ai_evaluation imports model helpers by value.
 install_model_sanitizer()
 install_identity_alias_sanitizer()
 install_stable_local_candidate_identity()
+install_candidate_state_retention()
 redact_resume_for_model = _model_module.redact_resume_for_model
 
 from boss_agent_cli.recruiter_ai_evaluation import (  # noqa: E402
