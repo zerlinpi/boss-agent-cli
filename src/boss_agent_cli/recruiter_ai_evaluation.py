@@ -82,6 +82,10 @@ def _finite_number(value: Any, *, default: float) -> float:
 	return number if math.isfinite(number) else default
 
 
+def _dimension_key(value: Any) -> str:
+	return re.sub(r"[\s\-]+", "_", str(value)).strip("_").casefold()
+
+
 def _requirement_key(value: Any) -> str:
 	return re.sub(r"\s+", " ", str(value)).strip().casefold()
 
@@ -110,20 +114,23 @@ def validate_evaluation(
 ) -> dict[str, Any]:
 	"""Normalize model output and recompute evidence-backed scores locally."""
 	normalized_rubric = normalize_rubric(rubric)
-	dimension_specs = {item["name"]: item for item in normalized_rubric["dimensions"]}
+	dimension_specs = {_dimension_key(item["name"]): item for item in normalized_rubric["dimensions"]}
 	raw_dimensions = payload.get("dimensions")
 	if not isinstance(raw_dimensions, list):
 		raise RecruiterAIError("AI 结果缺少 dimensions 列表")
-	raw_by_name = {
-		str(item.get("name")): item
-		for item in raw_dimensions
-		if isinstance(item, dict) and item.get("name") is not None
-	}
+	raw_by_name: dict[str, dict[str, Any]] = {}
+	for item in raw_dimensions:
+		if not isinstance(item, dict) or item.get("name") is None:
+			continue
+		key = _dimension_key(item.get("name"))
+		if key:
+			raw_by_name[key] = item
 	dimensions: list[dict[str, Any]] = []
 	total_points = 0.0
 	max_points = 0.0
-	for name, spec in dimension_specs.items():
-		item = raw_by_name.get(name, {})
+	for key, spec in dimension_specs.items():
+		name = str(spec["name"])
+		item = raw_by_name.get(key, {})
 		raw_score = item.get("score", 0) if isinstance(item, dict) else 0
 		max_score = float(spec["max_score"])
 		evidence = _as_text_list(item.get("evidence", []) if isinstance(item, dict) else [])
