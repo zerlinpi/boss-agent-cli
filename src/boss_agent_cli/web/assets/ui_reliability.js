@@ -29,6 +29,11 @@
 		return copied;
 	}
 
+	const uploadHint = document.querySelector("#resume-drop small");
+	if (uploadHint) {
+		uploadHint.textContent = "单文件最大 12 MB，单次最多 100 份 / 40 MB；PDF 最多 100 页";
+	}
+
 	const originalFileToDocument = fileToDocument;
 	fileToDocument = async function boundedFileToDocument(file) {
 		if (file.name.toLowerCase().endsWith(".json")) {
