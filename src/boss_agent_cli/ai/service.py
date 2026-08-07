@@ -10,7 +10,7 @@ import atexit
 import math
 import time
 from threading import Lock
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -21,6 +21,18 @@ _MAX_RETRY_DELAY_SECONDS = 5.0
 _ORIGINAL_HTTPX_POST = httpx.post
 _SHARED_CLIENT: httpx.Client | None = None
 _SHARED_CLIENT_LOCK = Lock()
+
+
+class ChatService(Protocol):
+	"""Structural contract required by recruiter AI evaluation and drafting helpers."""
+
+	def chat(
+		self,
+		messages: list[dict[str, Any]],
+		*,
+		temperature: float | None = None,
+		max_tokens: int | None = None,
+	) -> str: ...
 
 
 class AIServiceError(Exception):
