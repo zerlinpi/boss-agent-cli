@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from importlib.resources import files
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import boss_agent_cli.recruiter_ai_store as recruiter_store_module
 from boss_agent_cli.recruiter_ai import RecruiterAIError, candidate_name
@@ -15,6 +16,29 @@ from boss_agent_cli.web.tasks import TaskManager
 
 _INSTALLED = False
 _SERVER_INSTALLED = False
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
+def _authority_host(authority: str) -> str:
+	value = authority.strip().lower()
+	if value.startswith("["):
+		end = value.find("]")
+		return value[:end + 1] if end >= 0 else value
+	return value.rsplit(":", 1)[0] if ":" in value else value
+
+
+def is_loopback_authority(authority: str) -> bool:
+	return _authority_host(authority) in _LOOPBACK_HOSTS
+
+
+def is_loopback_origin(origin: str) -> bool:
+	if not origin:
+		return True
+	try:
+		parsed = urlparse(origin)
+	except ValueError:
+		return False
+	return parsed.scheme == "http" and (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}
 
 
 def install_controller_extensions() -> None:
@@ -127,7 +151,7 @@ def _install_sqlite_pragmas() -> None:
 
 
 def install_server_extensions(server_module: Any) -> None:
-	"""Append lifecycle UI assets to the existing no-build frontend bundle."""
+	"""Append lifecycle assets and enforce loopback-only Host/Origin requests."""
 	global _SERVER_INSTALLED
 	if _SERVER_INSTALLED:
 		return
@@ -144,3 +168,28 @@ def install_server_extensions(server_module: Any) -> None:
 		return content, content_type
 
 	setattr(application_cls, "asset", asset)
+
+	handler_cls = server_module.RecruiterRequestHandler
+	original_get = handler_cls.do_GET
+	original_post = handler_cls.do_POST
+
+	def request_allowed(handler: Any) -> bool:
+		if is_loopback_authority(handler.headers.get("Host", "")) and is_loopback_origin(handler.headers.get("Origin", "")):
+			return True
+		handler._send_error(controller_module.WebConsoleError(
+			"INVALID_LOCAL_ORIGIN",
+			"Web 控制台只接受本机回环地址请求",
+			status=403,
+		))
+		return False
+
+	def do_get(self: Any) -> None:
+		if request_allowed(self):
+			original_get(self)
+
+	def do_post(self: Any) -> None:
+		if request_allowed(self):
+			original_post(self)
+
+	setattr(handler_cls, "do_GET", do_get)
+	setattr(handler_cls, "do_POST", do_post)
