@@ -79,6 +79,7 @@ def create_portable_bundle(config: PortableConfig) -> PortableBuildResult:
 	_write_executable(bundle_dir / "install.sh", _install_sh(wheel_path.name))
 	_write_executable(bundle_dir / "bin" / "boss", _boss_wrapper())
 	_write_executable(bundle_dir / "bin" / "boss-doctor", _boss_doctor_wrapper())
+	_write_executable(bundle_dir / "bin" / "boss-recruit-web", _boss_recruit_web_wrapper())
 	(bundle_dir / "README-PORTABLE.md").write_text(_portable_readme(version), encoding="utf-8")
 	_write_executable(bundle_dir / "examples" / "zhilian-recruiter.sh", _zhilian_example())
 	_write_executable(bundle_dir / "examples" / "zhipin-recruiter.sh", _zhipin_example())
@@ -158,6 +159,7 @@ cat <<'MSG'
 boss-agent-cli portable install complete.
 
 Try:
+  boss-recruit-web
   boss schema --format native
   boss ai local status
   boss --data-dir ./.boss-agent agent stats
@@ -179,12 +181,19 @@ exec boss doctor "$@"
 """
 
 
+def _boss_recruit_web_wrapper() -> str:
+	return """#!/usr/bin/env bash
+set -euo pipefail
+exec boss-recruit-web "$@"
+"""
+
+
 def _portable_readme(version: str) -> str:
 	return f"""# boss-agent-cli portable bundle
 
 Version: {version}
 
-This bundle installs the `boss` and `boss-mcp` CLI entry points from the included wheel.
+This bundle installs the `boss`, `boss-mcp`, and `boss-recruit-web` entry points from the included wheel.
 It does not include login sessions, cookies, Chrome user data, cache files, or local model weights.
 
 ## Install
@@ -192,6 +201,14 @@ It does not include login sessions, cookies, Chrome user data, cache files, or l
 ```bash
 ./install.sh
 ```
+
+## Recruiter Web workspace
+
+```bash
+boss-recruit-web
+```
+
+The browser opens the local recruiter workspace at `http://127.0.0.1:8765/` by default.
 
 ## Use in any project
 
@@ -210,6 +227,8 @@ boss --data-dir ./.boss-agent --platform zhilian --role recruiter agent run --dr
 ```
 
 ## Windows notes
+
+For Windows repository downloads, prefer the root `start-recruiter-web.bat` one-click bootstrap rather than this macOS-oriented portable bundle.
 
 If `uv tool update-shell` times out, temporarily expose global tools in PowerShell:
 
