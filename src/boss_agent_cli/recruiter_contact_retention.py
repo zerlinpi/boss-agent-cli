@@ -61,9 +61,18 @@ _PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 	(re.compile(r"(?:年龄|age)\s*[:：]?\s*\d{1,3}\s*(?:岁|years?\s*old)?", re.I), "[年龄已隔离]"),
 	(re.compile(r"(?<!\d)(?:1[6-9]|[2-6]\d)\s*岁(?!\d)"), "[年龄已隔离]"),
 	(re.compile(r"(?<!\d)(?:1[6-9]|[2-6]\d)\s*years?\s*old\b", re.I), "[年龄已隔离]"),
+	(re.compile(r"(?:80后|85后|90后|95后|00后)"), "[年龄代际已隔离]"),
+	(re.compile(r"(?:年轻(?:人|候选人)?\s*(?:优先|为佳|更佳)?|\byoung(?:er)?\s*(?:preferred)?\b)", re.I), "[年龄偏好已隔离]"),
 	(re.compile(r"(?:性别|gender|sex)\s*[:：]?\s*(?:男|女|male|female)", re.I), "[性别已隔离]"),
 	(re.compile(r"(^|[\s|｜,，;；/])(?:男|女)(?=$|[\s|｜,，;；/])", re.M), r"\1[性别已隔离]"),
 	(re.compile(r"\b(?:male|female)\b", re.I), "[性别已隔离]"),
+	(
+		re.compile(
+			r"(?:男性|女性|男士|女士|male|female)\s*(?:优先|为佳|更佳|preferred?)",
+			re.I,
+		),
+		"[性别偏好已隔离]",
+	),
 	(
 		re.compile(
 			r"(?:出生日期|生日|birth(?:day|\s*date)?)\s*[:：]?\s*"
@@ -72,7 +81,16 @@ _PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 		),
 		"[出生日期已隔离]",
 	),
-	(re.compile(r"(?:出生于\s*)?(?:19|20)\d{2}\s*年\s*出生"), "[出生日期已隔离]"),
+	(
+		re.compile(
+			r"(?:出生于\s*)?(?:19|20)\d{2}\s*年\s*出生|"
+			r"出生于\s*(?:19|20)\d{2}(?:[-/.年]\d{1,2}(?:[-/.月]\d{1,2}日?)?)?|"
+			r"(?<!\d)(?:19|20)\d{2}\s*年\s*生(?=$|[\s,，;；|｜])|"
+			r"\bborn\s+(?:in|on)?\s*(?:19|20)\d{2}(?:[-/.]\d{1,2}(?:[-/.]\d{1,2})?)?\b",
+			re.I,
+		),
+		"[出生日期已隔离]",
+	),
 	(re.compile(r"(?:民族|ethnicity|race)\s*[:：]?\s*[^,，;；\n]{1,20}", re.I), "[民族信息已隔离]"),
 	(re.compile(r"(?:国籍|nationality)\s*[:：]?\s*[^,，;；\n]{1,20}", re.I), "[国籍信息已隔离]"),
 	(re.compile(r"(?:政治面貌|政治身份|党派|political\s*(?:status|affiliation)|party\s*membership)\s*[:：]?\s*[^,，;；\n]{1,30}", re.I), "[政治面貌已隔离]"),
