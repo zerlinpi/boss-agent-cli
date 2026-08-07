@@ -10,7 +10,8 @@ from boss_agent_cli.recruiter_ai_models import CANDIDATE_STATUSES
 _INSTALLED = False
 
 
-def _canonical_record_key(record: dict[str, Any]) -> str:
+def canonical_candidate_key(record: dict[str, Any]) -> str:
+	"""Return the current logical identity for current and legacy evaluation records."""
 	resume = record.get("resume")
 	source = record.get("source")
 	if isinstance(resume, dict):
@@ -34,7 +35,7 @@ def install_candidate_state_retention() -> None:
 	def latest_by_candidate(self: Any, *, job_key: str) -> dict[str, dict[str, Any]]:
 		latest: dict[str, dict[str, Any]] = {}
 		for record in self.list_evaluations(job_key=job_key):
-			key = _canonical_record_key(record)
+			key = canonical_candidate_key(record)
 			current = latest.get(key)
 			if current is None or str(record.get("created_at", "")) > str(current.get("created_at", "")):
 				latest[key] = record
