@@ -1,4 +1,4 @@
-/* Local data lifecycle controls layered onto the zero-build recruiter console. */
+/* Local data lifecycle and candidate-comparison controls. */
 const baseRenderOnboarding = renderOnboarding;
 renderOnboarding = function renderOnboardingWithOptionalBossLogin(onboarding) {
 	baseRenderOnboarding(onboarding);
@@ -25,6 +25,16 @@ function injectJobDeleteButtons() {
 		button.textContent = '删除';
 		actions.append(button);
 	});
+}
+
+function injectCompareButton() {
+	const toolbar = $("#bulk-toolbar");
+	if (!toolbar || toolbar.querySelector('[data-action="compare-candidates"]')) return;
+	const button = document.createElement('button');
+	button.className = 'button secondary';
+	button.dataset.action = 'compare-candidates';
+	button.textContent = '对比候选人';
+	toolbar.insertBefore(button, $("#bulk-apply"));
 }
 
 const baseRenderJobs = renderJobs;
@@ -72,13 +82,52 @@ async function deleteJobLocal(jobKey) {
 	} catch (error) { toast(error.message, 'error'); }
 }
 
+function closeCandidateComparison() {
+	$("#candidate-compare-modal")?.remove();
+}
+
+function compareColumn(record) {
+	const evaluation = record.evaluation || {};
+	return `<article class="compare-column"><header><strong>${escapeHtml(record.candidate_name || '候选人')}</strong><span class="score">${evaluation.total_score ?? '—'}</span></header><span class="badge ${escapeHtml(evaluation.recommendation)}">${recommendationLabel(evaluation.recommendation)}</span><p class="compare-summary">${escapeHtml(evaluation.summary || '暂无摘要')}</p><section><h4>优势</h4><div class="chip-list">${chips(evaluation.strengths, 'good', '暂无明确优势')}</div></section><section><h4>风险</h4><div class="chip-list">${chips(evaluation.concerns, 'risk', '暂无风险项')}</div></section><section><h4>评分维度</h4><div class="compare-dimensions">${(evaluation.dimensions || []).map(item => `<div><span>${escapeHtml(item.name)}</span><strong>${item.score}/${item.max_score}</strong><i style="--value:${Math.round(Number(item.score || 0) / Math.max(1, Number(item.max_score || 1)) * 100)}%"></i></div>`).join('') || '<small>暂无维度数据</small>'}</div></section></article>`;
+}
+
+async function compareSelectedCandidates() {
+	const ids = [...state.selectedCandidates];
+	if (ids.length < 2 || ids.length > 4) {
+		toast('请选择 2–4 位候选人进行对比', 'error');
+		return;
+	}
+	try {
+		const records = await Promise.all(ids.map(async id => {
+			const cached = state.candidateDetails.get(id);
+			if (cached) return cached;
+			const detail = await api(`/api/candidates/${encodeURIComponent(id)}`);
+			state.candidateDetails.set(id, detail);
+			return detail;
+		}));
+		closeCandidateComparison();
+		const modal = document.createElement('aside');
+		modal.id = 'candidate-compare-modal';
+		modal.className = 'compare-modal';
+		modal.innerHTML = `<div class="compare-backdrop" data-action="close-comparison"></div><div class="compare-panel"><header class="compare-header"><div><p class="eyebrow">SIDE-BY-SIDE</p><h2>候选人对比</h2><span>并排查看 AI 证据，最终结论仍由招聘人员决定。</span></div><button class="icon-button" data-action="close-comparison">×</button></header><div class="compare-grid" style="--compare-columns:${records.length}">${records.map(compareColumn).join('')}</div></div>`;
+		document.body.append(modal);
+	} catch (error) { toast(error.message, 'error'); }
+}
+
 document.addEventListener('click', event => {
-	const button = event.target.closest('[data-action="delete-job"],[data-action="delete-candidate"]');
+	const button = event.target.closest('[data-action="delete-job"],[data-action="delete-candidate"],[data-action="compare-candidates"],[data-action="close-comparison"]');
 	if (!button) return;
 	event.preventDefault();
 	event.stopPropagation();
 	if (button.dataset.action === 'delete-job') deleteJobLocal(button.dataset.jobKey);
 	if (button.dataset.action === 'delete-candidate') deleteCandidateLocal(button.dataset.evaluationId);
+	if (button.dataset.action === 'compare-candidates') compareSelectedCandidates();
+	if (button.dataset.action === 'close-comparison') closeCandidateComparison();
 }, true);
 
+document.addEventListener('keydown', event => {
+	if (event.key === 'Escape') closeCandidateComparison();
+});
+
 injectJobDeleteButtons();
+injectCompareButton();
