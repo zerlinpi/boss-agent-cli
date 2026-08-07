@@ -3,11 +3,11 @@ import math
 from boss_agent_cli.recruiter_ai import normalize_rubric, validate_evaluation
 
 
-def _dimensions(rubric, *, score: int | float, evidence: list[str]):
+def _dimensions(rubric, *, score: int | float, evidence: list[str], clamp: bool = True):
 	return [
 		{
 			"name": item["name"],
-			"score": min(score, item["max_score"]),
+			"score": min(score, item["max_score"]) if clamp else score,
 			"max_score": item["max_score"],
 			"reason": "model reason",
 			"evidence": evidence,
@@ -56,7 +56,12 @@ def test_non_finite_model_scores_cannot_turn_into_high_scores():
 	payload = {
 		"confidence": float("nan"),
 		"hard_requirements": [],
-		"dimensions": _dimensions(rubric, score=float("nan"), evidence=["存在证据但分数非法"]),
+		"dimensions": _dimensions(
+			rubric,
+			score=float("nan"),
+			evidence=["存在证据但分数非法"],
+			clamp=False,
+		),
 		"strengths": [],
 		"concerns": [],
 		"next_questions": [],
@@ -74,7 +79,12 @@ def test_infinite_model_scores_are_clamped_to_safe_values():
 	payload = {
 		"confidence": float("inf"),
 		"hard_requirements": [],
-		"dimensions": _dimensions(rubric, score=float("inf"), evidence=["存在证据但分数非法"]),
+		"dimensions": _dimensions(
+			rubric,
+			score=float("inf"),
+			evidence=["存在证据但分数非法"],
+			clamp=False,
+		),
 		"strengths": [],
 		"concerns": [],
 		"next_questions": [],
