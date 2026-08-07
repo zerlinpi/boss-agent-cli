@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import time
 from threading import Event
 
@@ -133,3 +134,47 @@ def test_delete_is_blocked_while_linked_screening_is_running(tmp_path):
 	finally:
 		release.set()
 		application.tasks.close()
+
+
+def test_corrupt_optional_task_json_does_not_prevent_web_startup(tmp_path):
+	path = tmp_path / "web_tasks.db"
+	manager = TaskManager(storage_path=path)
+	manager.close()
+
+	connection = sqlite3.connect(path)
+	try:
+		connection.execute(
+			"""
+			INSERT INTO web_tasks (
+				id, kind, status, progress, message, created_at, updated_at,
+				result_json, error_json, metadata_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			""",
+			(
+				"task_corrupt", "screen-local", "completed", 100, "done",
+				"2026-08-07T00:00:00+00:00", "2026-08-07T00:00:01+00:00",
+				"{broken", "{also-broken", "{metadata-broken",
+			),
+		)
+		connection.commit()
+	finally:
+		connection.close()
+
+	reloaded = TaskManager(storage_path=path)
+	try:
+		task = reloaded.get("task_corrupt")
+		assert task is not None
+		assert task["result"] is None
+		assert task["error"] is None
+		assert task["metadata"] == {}
+	finally:
+		reloaded.close()
+
+
+def test_task_recent_handles_invalid_limits_without_crashing(tmp_path):
+	manager = TaskManager(storage_path=tmp_path / "web_tasks.db")
+	try:
+		assert manager.recent(limit="invalid") == []  # type: ignore[arg-type]
+		assert manager.recent(limit=-100) == []
+	finally:
+		manager.close()
