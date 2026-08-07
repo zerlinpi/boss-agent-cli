@@ -2,9 +2,11 @@
 
 from boss_agent_cli.web.contact_extension import install_contact_assets
 from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleError
+from boss_agent_cli.web.export_security import install_export_security
 from boss_agent_cli.web.lifecycle import install_controller_extensions, install_server_extensions
 from boss_agent_cli.web.reply_extension import install_reply_assets
 
+install_export_security(__import__("boss_agent_cli.web.controller", fromlist=["*"]))
 install_controller_extensions()
 
 from boss_agent_cli.web import server as _server  # noqa: E402
