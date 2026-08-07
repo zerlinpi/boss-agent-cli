@@ -51,6 +51,7 @@ def delete_candidate_data(store: RecruiterAIStore, evaluation_id: str) -> dict[s
 	return {
 		"evaluation_id": evaluation_id,
 		"candidate_key": candidate_key,
+		"deleted_evaluation_ids": sorted(evaluation_ids),
 		"evaluation_count": len(paths),
 		"reply_count": _delete_replies(store, evaluation_ids),
 	}
@@ -73,6 +74,7 @@ def delete_job_data(store: RecruiterAIStore, job_key: str) -> dict[str, Any]:
 	(store.jobs_dir / f"{job_key}.json").unlink(missing_ok=True)
 	return {
 		"job_key": job_key,
+		"deleted_evaluation_ids": sorted(evaluation_ids),
 		"evaluation_count": len(paths),
 		"reply_count": _delete_replies(store, evaluation_ids),
 	}
