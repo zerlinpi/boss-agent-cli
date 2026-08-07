@@ -171,6 +171,27 @@ def test_corrupt_optional_task_json_does_not_prevent_web_startup(tmp_path):
 		reloaded.close()
 
 
+def test_corrupt_sqlite_task_database_is_quarantined_and_rebuilt(tmp_path):
+	path = tmp_path / "web_tasks.db"
+	path.write_bytes(b"this is not sqlite")
+
+	manager = TaskManager(storage_path=path)
+	try:
+		assert manager.recent() == []
+		connection = sqlite3.connect(path)
+		try:
+			row = connection.execute("SELECT count(*) FROM web_tasks").fetchone()
+			assert row[0] == 0
+		finally:
+			connection.close()
+	finally:
+		manager.close()
+
+	backups = list(tmp_path.glob("web_tasks.db.corrupt-*") )
+	assert len(backups) == 1
+	assert backups[0].read_bytes() == b"this is not sqlite"
+
+
 def test_task_recent_handles_invalid_limits_without_crashing(tmp_path):
 	manager = TaskManager(storage_path=tmp_path / "web_tasks.db")
 	try:
