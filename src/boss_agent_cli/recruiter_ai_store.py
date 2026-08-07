@@ -16,6 +16,7 @@ from boss_agent_cli.recruiter_ai_models import (
 	candidate_key,
 	candidate_name,
 	normalize_rubric,
+	redact_contact_text,
 	resume_fingerprint,
 	rubric_fingerprint,
 )
@@ -206,6 +207,14 @@ class RecruiterAIStore:
 		conversation: str,
 		draft: dict[str, Any],
 	) -> dict[str, Any]:
+		identity = ""
+		try:
+			identity = str(self.get_evaluation(evaluation_id).get("candidate_name") or "").strip()
+		except RecruiterAIError:
+			pass
+		safe_conversation = redact_contact_text(conversation)
+		if len(identity) >= 2:
+			safe_conversation = safe_conversation.replace(identity, "[姓名已脱敏]")
 		record_id = self._new_id("reply")
 		record = {
 			"schema_version": SCHEMA_VERSION,
@@ -213,7 +222,7 @@ class RecruiterAIStore:
 			"created_at": _utc_now(),
 			"evaluation_id": evaluation_id,
 			"intent": intent,
-			"conversation": conversation,
+			"conversation": safe_conversation,
 			"draft": draft,
 			"sent": False,
 			"requires_human_review": True,
