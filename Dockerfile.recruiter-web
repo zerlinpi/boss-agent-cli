@@ -1,0 +1,27 @@
+ARG PYTHON_VERSION=3.12
+FROM python:${PYTHON_VERSION}-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/data \
+    BOSS_DATA_DIR=/data/.boss-agent \
+    BOSS_WEB_PORT=8765
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir . "pypdf>=6,<7" \
+    && useradd --uid 1000 --home-dir /data --create-home --shell /usr/sbin/nologin boss \
+    && mkdir -p /data/.boss-agent \
+    && chown -R boss:boss /data
+
+USER boss
+WORKDIR /data
+EXPOSE 8765
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=6 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/', timeout=2).read(1)" || exit 1
+
+ENTRYPOINT ["python", "-m", "boss_agent_cli.web.container_main"]
