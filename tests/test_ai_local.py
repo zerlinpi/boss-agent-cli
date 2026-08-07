@@ -6,10 +6,16 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from boss_agent_cli.ai.config import AIConfigStore
-from boss_agent_cli.ai.local_models import LocalModelManifestError, parse_model_manifest
+from boss_agent_cli.ai.local_models import (
+	LocalModelManifestError,
+	import_local_model,
+	parse_model_manifest,
+	read_imported_models,
+)
 from boss_agent_cli.ai.service import AIServiceError
 from boss_agent_cli.main import cli
 
@@ -55,6 +61,46 @@ def test_parse_model_manifest_rejects_unapproved_license() -> None:
 		assert exc.code == "MODEL_LICENSE_UNAPPROVED"
 	else:
 		raise AssertionError("manifest with unknown license should fail")
+
+
+@pytest.mark.parametrize("value", ["many", -1, 1.5, float("nan"), float("inf"), True])
+def test_parse_model_manifest_rejects_invalid_memory_values(value) -> None:
+	with pytest.raises(LocalModelManifestError) as caught:
+		parse_model_manifest({
+			"name": "qwen-test",
+			"runtime": "ollama",
+			"license": "Apache-2.0",
+			"min_memory_gb": value,
+		})
+	assert caught.value.code == "MODEL_MANIFEST_INVALID"
+
+
+def test_parse_model_manifest_parses_string_false_as_false() -> None:
+	manifest = parse_model_manifest({
+		"name": "qwen-test",
+		"runtime": "ollama",
+		"license": "Apache-2.0",
+		"min_memory_gb": 8,
+		"recommended": "false",
+	})
+	assert manifest.recommended is False
+
+
+def test_corrupt_model_registry_is_treated_as_empty(tmp_path: Path) -> None:
+	registry = tmp_path / "models" / "registry.json"
+	registry.parent.mkdir(parents=True)
+	registry.write_text("{broken", encoding="utf-8")
+	assert read_imported_models(tmp_path) == []
+
+
+def test_import_rejects_directory_target_inside_its_source(tmp_path: Path) -> None:
+	source = tmp_path / "models" / "self-model"
+	source.mkdir(parents=True)
+	(source / "weights.gguf").write_text("tiny", encoding="utf-8")
+	with pytest.raises(LocalModelManifestError) as caught:
+		import_local_model(tmp_path, source, "self-model")
+	assert caught.value.code == "MODEL_IMPORT_FAILED"
+	assert not (source / "self-model").exists()
 
 
 def test_ai_local_configure_sets_ollama_provider(tmp_path: Path, monkeypatch) -> None:
