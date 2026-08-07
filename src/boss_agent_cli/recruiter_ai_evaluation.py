@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from boss_agent_cli.ai.service import AIService
@@ -36,7 +37,7 @@ def build_evaluation_messages(
 			],
 			"dimensions": [{
 				"name": "one of rubric.dimensions.name",
-				"score": "number between 0 and max_score",
+				"score": "finite number between 0 and max_score",
 				"max_score": "must equal rubric dimension max_score",
 				"reason": "string",
 				"evidence": ["concise resume facts; positive score requires evidence"],
@@ -52,6 +53,7 @@ def build_evaluation_messages(
 				"你是招聘筛选助手。仅依据岗位相关能力和简历中的可验证证据评分。"
 				"不得依据性别、年龄、照片、婚育、民族、健康、政治面貌等受保护属性做判断；"
 				"信息不足必须标记 unclear，不得推断。每个正分维度和标记为 met 的硬性要求都必须提供证据。"
+				"所有分数和置信度必须是有限数字，不得输出 NaN 或 Infinity。"
 				"AI 只提供辅助建议，不作最终录用或淘汰决定。严格输出一个 JSON 对象。"
 			),
 		},
@@ -70,6 +72,13 @@ def _as_text_list(value: Any, *, limit: int = 20) -> list[str]:
 		if len(items) >= limit:
 			break
 	return items
+
+
+def _finite_number(value: Any, *, default: float) -> float:
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		return default
+	number = float(value)
+	return number if math.isfinite(number) else default
 
 
 def _recommendation_for(
@@ -111,22 +120,22 @@ def validate_evaluation(
 	for name, spec in dimension_specs.items():
 		item = raw_by_name.get(name, {})
 		raw_score = item.get("score", 0) if isinstance(item, dict) else 0
-		if not isinstance(raw_score, (int, float)) or isinstance(raw_score, bool):
-			raw_score = 0
 		max_score = float(spec["max_score"])
 		evidence = _as_text_list(item.get("evidence", []) if isinstance(item, dict) else [])
-		score = max(0.0, min(max_score, float(raw_score)))
+		score = max(0.0, min(max_score, _finite_number(raw_score, default=0.0)))
 		if score > 0 and not evidence:
 			score = 0.0
 		total_points += score
 		max_points += max_score
 		dimensions.append({
-			"name": name, "score": round(score, 2), "max_score": int(max_score),
+			"name": name,
+			"score": round(score, 2),
+			"max_score": int(max_score),
 			"reason": str(item.get("reason", "")).strip() if isinstance(item, dict) else "",
 			"evidence": evidence,
 		})
-	if max_points <= 0:
-		raise RecruiterAIError("评分规则总分必须大于 0")
+	if max_points <= 0 or not math.isfinite(max_points):
+		raise RecruiterAIError("评分规则总分必须是大于 0 的有限数字")
 	total_score = int(round(total_points / max_points * 100))
 
 	hard_results: list[dict[str, Any]] = []
@@ -141,7 +150,8 @@ def validate_evaluation(
 			status = "unclear"
 		hard_results.append({
 			"requirement": str(item.get("requirement", "")).strip(),
-			"status": status, "evidence": evidence,
+			"status": status,
+			"evidence": evidence,
 		})
 	configured_hard = normalized_rubric["hard_requirements"]
 	by_requirement = {item["requirement"]: item for item in hard_results if item["requirement"]}
@@ -152,17 +162,16 @@ def validate_evaluation(
 	hard_missing = any(item["status"] == "missing" and item["requirement"] in required_names for item in hard_results)
 	hard_unclear = any(item["status"] == "unclear" and item["requirement"] in required_names for item in hard_results)
 
-	confidence = payload.get("confidence", 0.5)
-	if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
-		confidence = 0.5
-	confidence = round(max(0.0, min(1.0, float(confidence))), 3)
+	confidence = round(max(0.0, min(1.0, _finite_number(payload.get("confidence", 0.5), default=0.5))), 3)
 	evidenced_dimensions = sum(1 for item in dimensions if item["evidence"])
 	evidence_coverage = round(evidenced_dimensions / len(dimensions), 3) if dimensions else 0.0
 	return {
 		"total_score": total_score,
 		"recommendation": _recommendation_for(
-			total_score, normalized_rubric["thresholds"],
-			hard_missing=hard_missing, hard_unclear=hard_unclear,
+			total_score,
+			normalized_rubric["thresholds"],
+			hard_missing=hard_missing,
+			hard_unclear=hard_unclear,
 		),
 		"confidence": confidence,
 		"evidence_coverage": evidence_coverage,
@@ -240,8 +249,11 @@ def build_reply_messages(
 		"conversation": safe_conversation[-6000:],
 		"intent": intent,
 		"output_schema": {
-			"intent": "string", "reply": "string", "reason": "string",
-			"requires_human_review": True, "prohibited_content_detected": "boolean",
+			"intent": "string",
+			"reply": "string",
+			"reason": "string",
+			"requires_human_review": True,
+			"prohibited_content_detected": "boolean",
 		},
 	}
 	return [
