@@ -69,6 +69,26 @@ def test_model_payload_sanitizes_compact_resume_demographics():
 	assert "5年 Java 经验" in payload
 
 
+def test_model_payload_handles_unlabeled_birth_family_political_and_religious_traits():
+	resume = normalize_resume({
+		"raw_text": (
+			"1995年出生，中共党员，已育一子，基督徒，视力障碍；"
+			"6年 Go 经验，负责高并发订单系统。"
+		),
+	})
+	payload = json.dumps(redact_resume_for_model(resume), ensure_ascii=False)
+
+	for secret in ("1995年出生", "中共党员", "已育一子", "基督徒", "视力障碍"):
+		assert secret not in payload
+	assert "6年 Go 经验" in payload
+	assert "高并发订单系统" in payload
+	assert "[出生日期已隔离]" in payload
+	assert "[政治面貌已隔离]" in payload
+	assert "[孕育信息已隔离]" in payload
+	assert "[宗教信息已隔离]" in payload
+	assert "[残障信息已隔离]" in payload
+
+
 def test_model_payload_handles_camel_case_chinese_aliases_landline_and_name_in_text():
 	resume = normalize_resume({
 		"candidateName": "王五",
