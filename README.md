@@ -1,52 +1,55 @@
 <div align="center">
 
-<img src="docs/assets/logo.svg" width="112" alt="boss-agent-cli logo">
+<img src="docs/assets/logo.svg" width="112" alt="BOSS Recruit AI logo">
 
-# BOSS Recruit AI / boss-agent-cli
+# BOSS Recruit AI
 
-**本地招聘 AI 工作台：岗位画像 → 简历解析 → 证据化评分 → 候选人排序 → Kanban 流转 → 回复草稿 → 人工联系。**
+### 基于 `boss-agent-cli` 的本地 AI 招聘工作台
 
-同时保留原 `boss-agent-cli` 的 CLI、AI Agent、MCP 与求职者辅助能力。
+**岗位画像 → 简历解析 → 证据化评分 → 候选人排序 → Kanban 流转 → AI 回复草稿 → 人工联系**
 
-[![CI](https://github.com/can4hou6joeng4/boss-agent-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/can4hou6joeng4/boss-agent-cli/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/can4hou6joeng4/boss-agent-cli/branch/master/graph/badge.svg)](https://codecov.io/gh/can4hou6joeng4/boss-agent-cli)
-[![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python&logoColor=white&style=flat-square)](https://python.org)
+[![CI](https://github.com/zerlinpi/boss-agent-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/zerlinpi/boss-agent-cli/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.10--3.14-3776AB?logo=python&logoColor=white&style=flat-square)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
-[![GitHub Release](https://img.shields.io/github/v/release/can4hou6joeng4/boss-agent-cli?style=flat-square)](https://github.com/can4hou6joeng4/boss-agent-cli/releases)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/boss-agent-cli?style=flat-square)](https://pypi.org/project/boss-agent-cli/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/can4hou6joeng4/boss-agent-cli/pulls)
-[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fcan4hou6joeng4%2Fboss-agent-cli.svg)](https://mcptoplist.com/server/glama%2Fcan4hou6joeng4%2Fboss-agent-cli)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/zerlinpi/boss-agent-cli/pulls)
 
-[快速开始](docs/getting-started.md) · [Agent Quickstart](docs/agent-quickstart.md) · [Capability Matrix](docs/capability-matrix.md) · [平台风险](docs/platform-risk.md) · [排障](docs/troubleshooting.md) · [中文](README.md) | [English](README.en.md)
+[Windows 一键启动](#-windows-一键启动推荐) · [Docker](#-docker-一键启动) · [功能](#-当前功能) · [数据与模型隔离](#-数据与模型隔离) · [开发](#-开发与质量门禁) · [English](README.en.md)
 
 </div>
 
 > [!NOTE]
-> 本仓库基于 [can4hou6joeng4/boss-agent-cli](https://github.com/can4hou6joeng4/boss-agent-cli) 持续开发。原作者、MIT 许可证、CLI/MCP 架构与上游生态信息均保留；当前 fork 的招聘 AI Web 工作台、一键启动和招聘流程由 `zerlinpi/boss-agent-cli` 维护。当前 fork CI：<https://github.com/zerlinpi/boss-agent-cli/actions/workflows/ci.yml>。
+> 本仓库由 [can4hou6joeng4/boss-agent-cli](https://github.com/can4hou6joeng4/boss-agent-cli) fork 并持续开发。原项目的 CLI、认证、平台适配、AI、MCP 等基础能力和 MIT 许可证继续保留；本 fork 的招聘 AI Web 工作台、一键启动、招聘数据流和相关测试由 `zerlinpi/boss-agent-cli` 维护。
 
 > [!IMPORTANT]
-> 项目定位是**招聘 Copilot / 本地招聘工作台**，不是无人值守招聘机器人。AI 只提供辅助评分、排序和回复草稿，不自动决定录用/淘汰，也不自动向候选人发送 BOSS 消息。默认遵循低风险、只读优先、用户主动触发的边界；被策略阻断的敏感命令返回 `COMPLIANCE_BLOCKED`，应回到平台官网或官方页面人工处理。
+> 这是 **Recruiting Copilot / 本地招聘工作台**，不是无人值守招聘机器人。AI 负责辅助分析、排序和生成回复草稿；最终面试、录用、淘汰以及候选人消息发送仍由招聘人员确认。平台出现验证码、风险控制、账号异常或权限阻断时，不应自动绕过。
 
 ---
 
-## 🚀 最快启动
+## 🚀 30 秒开始使用
 
-### Windows 一键启动（推荐）
+### 🪟 Windows 一键启动（推荐）
 
-下载仓库 ZIP 或拉取 `master` 后，双击：
+下载仓库 ZIP 并解压，或拉取 `master`：
+
+```bash
+git clone https://github.com/zerlinpi/boss-agent-cli.git
+cd boss-agent-cli
+```
+
+然后**双击仓库根目录**：
 
 ```text
 start-recruiter-web.bat
 ```
 
-首次启动会自动完成：
+第一次启动会自动：
 
-1. 检测 Python 3.10–3.14；
-2. 无可用 Python 时尝试通过 `winget` 安装 Python 3.12；
+1. 查找 Python 3.10–3.14；
+2. 没有可用 Python 时尝试通过 `winget` 安装 Python 3.12；
 3. 创建或修复项目独立 `.venv`；
 4. 安装/更新项目依赖与 `pypdf`；
-5. 检查 Patchright，并执行 `patchright install chromium`；
-6. 启动本地 Web 服务；
+5. 检查 Patchright 并尝试安装 Chromium；
+6. 启动本地招聘 Web 服务；
 7. 自动打开浏览器。
 
 默认地址：
@@ -55,20 +58,22 @@ start-recruiter-web.bat
 http://127.0.0.1:8765/
 ```
 
-关闭启动窗口即可停止服务。Chromium 下载失败不会阻止本地简历筛选，但 BOSS 浏览器登录可能需要重新安装 Chromium 或使用本机 Chrome。
+关闭启动窗口即可停止服务。
 
-### Docker 一键启动
+> Chromium 下载失败不会阻止本地 PDF/DOCX/JSON 简历工作流，但 BOSS 浏览器登录可能需要修复 Chromium 或使用已安装的 Chrome/CDP。
 
-Windows + Docker Desktop 双击：
+### 🐳 Docker 一键启动
+
+Windows + Docker Desktop：
 
 ```text
-start-recruiter-docker.bat
+双击 start-recruiter-docker.bat
 ```
 
 停止：
 
 ```text
-stop-recruiter-docker.bat
+双击 stop-recruiter-docker.bat
 ```
 
 macOS / Linux：
@@ -77,7 +82,13 @@ macOS / Linux：
 docker compose -f docker-compose.recruiter.yml up -d --build
 ```
 
-默认只发布到宿主机回环地址：
+停止：
+
+```bash
+docker compose -f docker-compose.recruiter.yml down
+```
+
+默认只发布到本机：
 
 ```text
 127.0.0.1:8765
@@ -89,104 +100,151 @@ docker compose -f docker-compose.recruiter.yml up -d --build
 BOSS_WEB_PORT=9000 docker compose -f docker-compose.recruiter.yml up -d --build
 ```
 
-数据持久化在 Docker named volume：
+Docker 数据保存在命名卷：
 
 ```text
 boss-recruiter-data
 ```
 
-Docker 更适合本地文件筛选、候选人管理和 AI 工作流。BOSS 登录依赖真实浏览器环境，Windows 原生模式体验更完整；Docker 可通过 `BOSS_CDP_URL=http://host.docker.internal:9222` 连接用户主动开启的宿主机 Chrome 调试端口。
+删除容器不会删除招聘数据；只有执行：
+
+```bash
+docker compose -f docker-compose.recruiter.yml down -v
+```
+
+才会同时删除该 Docker 数据卷。
+
+### 开发者手动启动
+
+安装当前仓库后：
+
+```bash
+pip install -e .
+boss-recruit-web
+```
+
+不自动打开浏览器：
+
+```bash
+boss-recruit-web --no-open
+```
 
 ---
 
-## 🎯 招聘工作流
+## 🎯 最终工作流
 
 ```text
 岗位 JD
-  ↓
-AI 岗位画像 / 可配置评分规则
-  ↓
-本地 PDF/DOCX/TXT/JSON 或授权范围内的 BOSS 候选人
-  ↓
-简历标准化 + 联系方式本地提取
-  ↓
-生成模型安全副本
-  ↓
-证据化维度评分 + 本地重算总分
-  ↓
-候选人排名 / 横向对比 / 风险与追问
-  ↓
-Kanban：新候选人 → 入围 → 面试 → 待定 → 录用/不合适
-  ↓
-AI 回复草稿 → 人工审核 → 人工联系
+  │
+  ▼
+AI 岗位画像 + 可配置评分规则
+  │
+  ├── 本地 JSON / TXT / Markdown / DOCX / PDF
+  └── 当前实现和授权范围内的 BOSS 招聘者数据
+  │
+  ▼
+简历标准化 + 本地联系人提取
+  │
+  ├── 本地 HR 数据副本
+  └── 模型安全副本
+          │
+          ▼
+    证据化 AI 评分
+          │
+          ▼
+    本地重算 0–100 分
+          │
+          ▼
+候选人排名 / 对比 / 风险 / 追问
+  │
+  ▼
+Kanban：新候选人 → 入围 → 面试 → 待定 → 录用 / 不合适
+  │
+  ▼
+AI 回复草稿 → 本地安全扫描 → 人工审核 → 人工联系
 ```
-
-典型操作：
-
-1. 在 **系统设置** 配置 AI；
-2. 新建岗位并粘贴 JD；
-3. 用 **AI 分析岗位** 生成评分维度和硬性要求；
-4. 上传本地简历，或在明确授权的 Research Mode 下读取当前实现支持的招聘者数据；
-5. 在 Dashboard 查看 Top 候选人和漏斗；
-6. 在候选人工作台使用列表/Kanban、搜索、排序、批量流转和横向对比；
-7. 打开候选人详情查看证据、风险、联系人和建议追问；
-8. 生成回复草稿，人工审核后在官方渠道联系候选人。
 
 ---
 
-## 🌟 主要能力
+## ✨ 当前功能
 
-### 图形招聘控制台
+### 招聘 Dashboard
 
-| 能力 | 状态 |
-| --- | --- |
-| 本地 Web UI | ✅ |
-| Windows 双击启动 | ✅ |
-| Docker Compose 一键启动 | ✅ |
-| Dashboard / 招聘漏斗 | ✅ |
-| 多岗位配置 | ✅ |
-| AI 分析 JD | ✅ |
-| 自定义评分规则 | ✅ |
-| 候选人列表 + Kanban | ✅ |
-| 拖拽阶段流转 | ✅ |
-| 搜索 / 过滤 / 排序 | ✅ |
-| 批量状态更新 | ✅ |
-| CSV 导出 | ✅ |
-| 2–4 人横向比较 | ✅ |
-| 任务历史 / SQLite 持久化 | ✅ |
-| 操作审计 | ✅ |
-| 联系方式查看/复制 | ✅ |
+- 候选人总量、推荐面试、人工复核、面试阶段等指标；
+- 招聘漏斗；
+- 评分分布；
+- 最近 7 天处理量；
+- Top 候选人；
+- AI、登录、运行模式状态；
+- 旧版本无时区时间戳兼容处理。
 
-### 简历输入
+### 岗位配置
 
-支持：`.json`、`.txt`、`.md`、`.docx`、`.pdf`。
+- 多岗位管理；
+- 粘贴完整 JD；
+- AI 自动生成岗位画像；
+- 自动生成硬性要求和评分维度；
+- 自定义评分权重；
+- 自定义推荐阈值；
+- 可关联 BOSS 职位 ID。
 
-保护限制：
+### 简历上传与解析
+
+支持：
+
+```text
+.json
+.txt
+.md
+.docx
+.pdf
+```
+
+当前限制：
 
 - 单文件最大 12 MB；
 - 单次最多 100 份；
-- DOCX 解压大小限制；
-- 提取文本长度限制；
-- 文件名基础化处理；
-- PDF 优先使用 `pypdf`，并保留基础回退解析。
+- DOCX 解压后内容有限额；
+- 提取文本有限长；
+- PDF 优先使用 `pypdf`，并保留基础回退解析；
+- **扫描图片 PDF 暂不支持 OCR**。
 
-**扫描版 PDF 暂不支持 OCR。**
+### AI 候选人评分
 
-### AI 评分
+评分不是简单询问模型“这个人合不合适”。当前流程包含确定性门禁：
 
-模型不能直接决定最终总分：
-
-- 按岗位硬性要求和可配置维度分析；
-- 正分维度必须返回简历证据；
-- 无证据的正分本地强制归零；
-- 硬性要求标记 `met` 但无证据时改为 `unclear`；
-- 必需条件 `missing / unclear` 时强制进入人工复核；
-- 本地重新计算 0–100 分；
+- 每个正分维度必须提供简历证据；
+- 无证据的正分会在本地归零；
+- 硬性要求标为 `met` 却没有证据时改为 `unclear`；
+- 必需条件为 `missing / unclear` 时强制进入人工复核；
+- 模型提供维度分，本地代码重新计算总分；
+- 评分规则的维度分值必须是有限正整数；
+- 推荐阈值必须是 0–100 的有限整数并保持正确顺序；
 - 输出证据覆盖率、优势、风险和建议追问。
 
-### 候选人管理
+默认评分维度包括：
 
-候选人详情可查看匹配分、推荐等级、评分维度、简历证据、优势、风险、建议追问、AI 摘要、人工状态、备注，以及本地保存的电话/邮箱/微信/QQ。
+- 必需技能；
+- 相关工作经验；
+- 项目证据；
+- 职责匹配；
+- 行业匹配；
+- 量化成果证据。
+
+### 候选人工作台
+
+支持：
+
+- 列表 / Kanban 双视图；
+- 排序、搜索、过滤；
+- 拖拽招聘阶段；
+- 批量状态更新；
+- 2–4 人横向比较；
+- 候选人详细评分证据；
+- 优势、风险、下一步追问；
+- 电话、邮箱、微信、QQ 本地查看与复制；
+- CSV 导出；
+- 候选人和岗位本地数据删除。
 
 招聘阶段：
 
@@ -194,97 +252,119 @@ AI 回复草稿 → 人工审核 → 人工联系
 new → shortlisted → interview → hold → hired / rejected
 ```
 
-同一候选人更新简历时可以保留评估历史，排行榜只使用最新版本。
+### 增量筛选
+
+同一候选人会根据：
+
+- 稳定候选人标识；
+- 简历指纹；
+- 评分规则指纹；
+
+判断是否发生变化。
+
+未变化的候选人默认跳过，避免重复消耗模型调用。**即使 AI 当前未配置，只要本次所有简历都已评估且未变化，增量检查也可以正常完成。**
 
 ### AI 回复草稿
 
-支持追问信息、面试邀请、岗位澄清、收到简历确认和婉拒草稿。回复链路带本地安全扫描，用于提示受保护属性询问、确定录用承诺、联系方式异常泄露和异常长回复。
+支持：
 
-**所有回复只生成草稿，不自动发送。**
+- 收到简历确认；
+- 信息追问；
+- 面试邀请；
+- 岗位澄清；
+- 婉拒草稿。
+
+回复生成后还会做本地规则扫描，包括：
+
+- 受保护属性询问；
+- 确定录用承诺；
+- 电话/邮箱/微信/QQ 等联系方式异常暴露；
+- 异常长回复。
+
+**系统不会自动发送这些回复。**
 
 ---
 
 ## 🔐 数据与模型隔离
 
-招聘工作台把“HR 在本机需要的数据”和“允许发送给 AI 的决策数据”分开处理。
+招聘工作台刻意把“HR 在本机需要查看的数据”和“允许进入模型决策的数据”分成两条通道。
 
-### 本地保留
+### 本地 HR 通道
 
-为了人工联系候选人，本机可以保存姓名、手机号、邮箱、微信、QQ、人工粘贴的聊天原文、招聘阶段和人工备注。
+本地记录可以保留用于人工招聘流程的信息，例如：
 
-身份证号等非约面所需的身份号码会从结构化字段和自由文本中移除。
+- 候选人姓名；
+- 简历原始/结构化业务字段；
+- 年龄、性别、婚姻状况等原简历字段（仅供人工查看，不进入 AI 决策输入）；
+- 手机号；
+- 邮箱；
+- 微信；
+- QQ；
+- 人工粘贴的聊天原文；
+- 招聘阶段；
+- 人工备注。
 
-### 模型输入
+为减少不必要的数据留存，身份证号等身份号码会从结构化字段及自由文本中移除；完整家庭/居住地址等非约面所需字段也会从标准化本地副本中剔除。
 
-AI 评分和回复生成使用单独安全副本。发送模型前会移除或替换：
+### AI 决策通道
+
+调用 AI 时会生成独立的模型安全副本。模型输入会移除或替换：
 
 - 姓名；
-- 手机、邮箱、微信、QQ；
+- 手机号和座机；
+- 邮箱；
+- 微信、QQ；
 - 身份证号；
 - 婚姻状况；
 - 年龄和出生日期；
 - 性别；
-- 民族、国籍、政治面貌等受保护属性。
+- 民族 / race / ethnicity；
+- 国籍；
+- 政治面貌；
+- 宗教；
+- 健康、疾病和残障信息；
+- 怀孕、生育和相关状态。
 
-常见自由文本形式如：
+字段匹配同时覆盖常见：
 
-```text
-31岁 | 男 | 已婚 | 手机 138... | 微信 abc...
-```
+- `snake_case`；
+- `camelCase`；
+- 英文别名；
+- 中文字段名；
+- 自由文本。
 
-同样会在模型请求前处理。候选人稳定性应依据任职时长、工作切换频率、履历空档、项目持续时间和职责连续性等岗位相关证据。
-
-详细说明：[招聘联系人数据处理](docs/recruiter-contact-handling.md) · [数据生命周期](docs/recruiter-data-lifecycle.md)
-
----
-
-## 👔 BOSS 招聘者接入与平台边界
-
-默认 Assisted Mode 聚焦本地辅助和低风险能力。需要处理候选人数据时，Research Mode 只用于当前实现明确支持、用户已获授权的读取链路。
-
-敏感平台命令（例如 `batch-greet`、apply、候选人消息发送等）默认受策略控制；命中边界会返回 `COMPLIANCE_BLOCKED`。不要把 CDP、浏览器或 Bridge 当成风控绕过机制，出现验证码、账号异常或平台拦截时应停止自动化重试并回到官方页面处理。
-
-完整边界：[平台风险说明](docs/platform-risk.md)。
-
-### 平台兼容层
-
-CLI 全局平台入口：
+例如：
 
 ```text
---platform zhipin|zhilian|qiancheng
+31岁 | 男 | 已婚 | 5年 Java 经验 | 电话 010-12345678 | 微信 abc123
 ```
 
-- BOSS 直聘：`zhipin`
-- 智联招聘：`zhilian`
-- 前程无忧 / 51job (`qiancheng`)：当前仅注册占位能力
-- `QianchengPlatform (51job 占位适配器，统一返回 NOT_SUPPORTED)`
+进入评分模型前会保留 `5年 Java 经验` 等岗位证据，并隔离其他身份、联系方式和受保护属性。
 
-实际能力请以 [Capability Matrix](docs/capability-matrix.md) 和 `boss schema --format native` 为准。
+候选人“稳定性”应依据：
+
+- 每段工作任职时长；
+- 工作切换频率；
+- 履历空档；
+- 项目持续时间；
+- 职责连续性；
+
+而不是婚姻、性别、年龄等属性。
+
+更多说明：
+
+- [招聘联系人数据处理](docs/recruiter-contact-handling.md)
+- [招聘数据生命周期](docs/recruiter-data-lifecycle.md)
 
 ---
 
-## ⚙️ 配置
+## 👔 BOSS 招聘者接入
 
-日常招聘配置优先在 Web 的 **系统设置** 页面完成，包括 AI Provider、模型、Base URL、API Key、运行模式和 BOSS 登录。
+Web 设置页可以完成 BOSS 登录和运行模式切换。
 
-CLI 兼容入口：
+默认 `assisted` 模式侧重本地辅助和低风险能力。候选人读取链路只应在当前实现支持、账号具备相应权限并明确启用的场景使用。
 
-```bash
-boss config list
-boss ai config --provider deepseek --model deepseek-chat --api-key "$DEEPSEEK_API_KEY"
-boss doctor
-boss status
-```
-
-API Key 使用项目已有加密存储机制保存到本地数据目录。
-
----
-
-## 🧩 保留的 CLI / Agent / MCP 能力
-
-Web 工作台是新增主入口，但没有删除原项目能力。开发者和 Agent 仍可以使用 CLI、JSON 信封、Schema、MCP、本地 shortlist、简历管理和求职辅助能力。
-
-招聘 AI CLI：
+当前招聘 AI CLI 仍保留：
 
 ```text
 boss hr ai configure
@@ -299,56 +379,79 @@ boss hr ai mark
 boss hr ai reply
 ```
 
-能力真源：
+发生以下情况时应停止自动化重试并回到官方页面：
 
-```bash
-boss schema --format native
-```
+- 验证码；
+- 风险控制页面；
+- 登录异常；
+- 账号限制；
+- 权限错误；
+- 页面/接口明显变更。
 
-Agent 文档：[Agent Quickstart](docs/agent-quickstart.md) · [Capability Matrix](docs/capability-matrix.md)。
+不要将 CDP、Patchright、Bridge 或其他浏览器能力用于规避平台风控。
 
-### MCP
-
-```bash
-pip install -e '.[mcp]'
-boss-mcp --transport stdio
-```
-
-MCP 同样遵循默认低风险能力边界，敏感动作不会因为从 MCP 调用就自动开放。
-
-### Browser Bridge 高级诊断
-
-Bridge 是兼容和诊断通道，不是绕过风控的手段。启动本地 daemon：
-
-```bash
-python -m boss_agent_cli.bridge.daemon --serve
-```
-
-常见诊断组件/能力名：
-
-```text
-bridge_daemon
-bridge_extension
-bridge_protocol
-bridge_workspace
-bridge_exec
-bridge_fetch
-bridge_navigate
-```
-
-当 Bridge、CDP 或浏览器遇到平台风控，应停止自动化重试并转到官方页面。更多说明见 [平台风险说明](docs/platform-risk.md) 和 [快速开始](docs/getting-started.md)。
+详细说明：[平台风险边界](docs/platform-risk.md)。
 
 ---
 
-## 💾 本地数据与生命周期
+## 🤖 AI 配置
 
-原生启动默认数据目录：
+优先在 Web 的 **系统设置** 页面配置：
+
+- Provider；
+- Model；
+- Base URL；
+- API Key；
+- temperature；
+- max tokens。
+
+也保留 CLI：
+
+```bash
+boss ai config --provider deepseek --model deepseek-chat --api-key "$DEEPSEEK_API_KEY"
+```
+
+系统继续兼容 OpenAI-compatible Provider，也可使用项目已有的 Ollama / vLLM 本地模型配置能力。
+
+API Key 使用项目已有加密存储机制保存在本机数据目录。
+
+---
+
+## 🐳 Docker 与宿主机浏览器
+
+Docker 工作台最适合：
+
+```text
+本地简历上传
+→ AI 分析
+→ 排名
+→ Kanban
+→ 人才库
+→ 回复草稿
+```
+
+BOSS 登录涉及真实浏览器环境，Windows 原生启动通常更直接。
+
+Docker 需要连接用户主动开启的宿主机 Chrome CDP 时，可以设置：
+
+```bash
+BOSS_CDP_URL=http://host.docker.internal:9222 \
+docker compose -f docker-compose.recruiter.yml up -d --build
+```
+
+Compose 默认只把容器端口映射到宿主机 `127.0.0.1`，不会默认暴露到局域网或公网。
+
+---
+
+## 💾 本地数据
+
+原生默认数据目录：
 
 ```text
 ~/.boss-agent/
 ```
 
-招聘数据主要位于：
+招聘工作台主要数据：
 
 ```text
 ~/.boss-agent/recruiter-ai/
@@ -359,157 +462,255 @@ bridge_navigate
 └── audit.jsonl
 ```
 
-后台任务使用 SQLite；服务异常退出后，未完成任务会被标记为 `TASK_INTERRUPTED`。删除候选人时同步清理其评估版本、关联草稿和任务历史引用；删除岗位会级联清理该岗位的本地招聘数据。运行中的关联筛选任务会阻止并发删除。
+后台任务使用 SQLite：
 
-Docker 使用 `boss-recruiter-data` named volume。删除容器并保留数据：
-
-```bash
-docker compose -f docker-compose.recruiter.yml down
-```
-
-永久删除 Docker 招聘数据：
-
-```bash
-docker compose -f docker-compose.recruiter.yml down -v
-```
+- WAL；
+- `NORMAL` synchronous；
+- busy timeout；
+- 服务重启后将未完成任务标为 `TASK_INTERRUPTED`；
+- 候选人删除会清理关联评估、回复和任务结果引用；
+- 岗位删除会级联清理关联招聘记录；
+- 有关联筛选任务运行时会阻止删除。
 
 ---
 
-## 🐳 Docker 安全默认值
+## 🛡️ Web 安全默认值
 
-招聘 Web 使用 `Dockerfile.recruiter-web` 和 `docker-compose.recruiter.yml`：
+本地 Web 工作台包含：
 
-- 容器内监听 8765 供 Docker 转发；
-- 宿主机只发布 `127.0.0.1:<port>`；
-- 容器非 root 运行；
-- Web 服务启动时生成随机 API Token；
-- API 校验 Token；
-- 请求校验 `Host` / `Origin`；
-- 响应包含 CSP、X-Frame-Options、Referrer-Policy、Permissions-Policy 等安全头；
-- 数据卷持久化。
-
-日志：
-
-```bash
-docker compose -f docker-compose.recruiter.yml logs -f recruiter-web
-```
+- 默认只绑定 `127.0.0.1 / localhost`；
+- 启动时随机生成 Web API Token；
+- API 请求 Token 校验；
+- `Host` / `Origin` 回环地址检查；
+- 请求体大小限制；
+- CSP；
+- `X-Frame-Options: DENY`；
+- `X-Content-Type-Options: nosniff`；
+- `Referrer-Policy: no-referrer`；
+- Permissions Policy；
+- CSV Formula Injection 防护；
+- Docker 非 root 用户；
+- Docker Host 端口仅发布到回环地址。
 
 ---
 
-## 🏗️ 技术架构
+## 🏗️ 架构
 
 ```text
 Browser
-  ↓
+  │
+  ▼
 Recruiter Web SPA
-  ↓ localhost JSON API + token
+  │ localhost JSON API + token
+  ▼
 RecruiterWebController
   ├─ Job / Rubric
-  ├─ Resume parser
-  ├─ Recruiter AI evaluation
-  ├─ Reply drafting + safety scan
+  ├─ Resume documents
+  ├─ Recruiter AI evaluator
+  ├─ Candidate ranking
+  ├─ Reply drafting + deterministic safety
   ├─ RecruiterAIStore
   ├─ AuditLog
-  └─ TaskManager (SQLite)
-        ↓
-  Local files / guarded recruiter adapter
+  └─ TaskManager / SQLite
+          │
+          ├─ Local resume data
+          └─ guarded recruiter platform adapter
 
-AI path:
-local resume + recruiter contacts
-  → model-safe copy
-  → evidence-backed LLM evaluation
-  → local score recomputation
-  → human review
+AI decision path
+  │
+  ├─ local recruiter copy
+  │
+  └─ model-safe copy
+        ↓
+    LLM evidence scoring
+        ↓
+    local score validation / recomputation
+        ↓
+    human review
 ```
 
-| 层 | 技术 |
+| 层 | 当前技术 |
 | --- | --- |
-| Python | >= 3.10 |
+| Python | 3.10–3.14 |
 | CLI | Click |
-| Web | 原生 HTML/CSS/JavaScript，无前端构建步骤 |
-| HTTP | `httpx` + 本地 `ThreadingHTTPServer` |
-| 浏览器 | Patchright / Chrome CDP / Browser Bridge |
-| 存储 | JSON + SQLite WAL |
-| 加密 | `cryptography` / Fernet |
-| AI | OpenAI-compatible Provider 体系 |
-| PDF | `pypdf` 优先 + 基础回退 |
-| 测试 | pytest / Ruff / mypy / Docker smoke |
+| Web UI | 原生 HTML / CSS / JavaScript，无前端构建步骤 |
+| HTTP | `ThreadingHTTPServer` + JSON API |
+| HTTP Client | httpx |
+| Browser | Patchright / Chrome CDP / Browser Bridge |
+| Store | JSON + SQLite WAL |
+| Encryption | cryptography / Fernet |
+| AI | OpenAI-compatible service abstraction |
+| PDF | pypdf + fallback extractor |
+| Tests | pytest / Ruff / mypy / Docker smoke |
+
+---
+
+## 🧩 原项目 CLI / Agent / MCP 能力
+
+本 fork 没有删除原 `boss-agent-cli` 能力。开发者仍可使用：
+
+```bash
+boss doctor
+boss login
+boss status
+boss schema --format native
+boss search "Python"
+boss shortlist list
+boss ai local --help
+boss hr --help
+```
+
+MCP：
+
+```bash
+pip install -e '.[mcp]'
+boss-mcp --transport stdio
+```
+
+能力真源始终以：
+
+```bash
+boss schema --format native
+```
+
+为准，而不是 README 中手写的命令数量。
+
+Agent 文档：
+
+- [Agent Quickstart](docs/agent-quickstart.md)
+- [Capability Matrix](docs/capability-matrix.md)
+- [Host Examples](docs/agent-hosts.md)
 
 ---
 
 ## 🧪 开发与质量门禁
 
+推荐开发环境：
+
 ```bash
 git clone https://github.com/zerlinpi/boss-agent-cli.git
 cd boss-agent-cli
 uv sync --all-extras
-uv run pytest tests/ -v
-uv run ruff check src/
-uv run mypy src/boss_agent_cli
 ```
 
-离线质量门禁：
+全量质量基线：
 
 ```bash
 uv run python scripts/quality_baseline.py
+```
+
+单独执行：
+
+```bash
+uv run pytest tests/ -v
+uv run ruff check src/ tests/ scripts/
+uv run mypy src/boss_agent_cli
+```
+
+离线 smoke：
+
+```bash
 BOSS_SMOKE_DRY_RUN=1 uv run python scripts/smoke_p0.py
 uv run python evals/run_eval.py --mode fixture
 ```
 
-CI 覆盖 Python 3.10–3.14、pytest/coverage、compileall、Ruff、mypy、CLI/MCP Docker、MCP stdio 初始化、招聘 Web Docker 构建、Compose 配置、非 root 检查和 Web 容器健康检查。
+当前 CI 工作流覆盖：
+
+- Python 3.10 / 3.11 / 3.12 / 3.13 / 3.14；
+- pytest + coverage；
+- compileall；
+- Ruff；
+- mypy；
+- CLI/MCP Docker 镜像；
+- MCP stdio handshake；
+- Recruiter Web Docker 镜像；
+- Recruiter Compose 配置验证；
+- 非 root 容器检查；
+- Recruiter Web HTTP / healthcheck smoke。
 
 ---
 
-## 🔧 排障
+## 🔧 常见问题
 
-### Windows 一键启动失败
+### Windows 双击后提示 Python 不存在
 
-优先查看启动窗口最后一条错误。常见原因是企业设备禁用 `winget`、依赖下载无网络、Python 安装被终端安全策略阻止或 8765 端口被占用。
+启动器会优先尝试 `py` / `python`，没有可用 Python 时使用 `winget` 安装 Python 3.12。企业电脑禁用 `winget` 时，需要手动安装 Python 3.10+。
 
 ### BOSS 登录提示浏览器内核缺失
+
+Windows 一键启动会自动尝试：
 
 ```bash
 patchright install chromium
 ```
 
-Windows 一键启动会自动尝试该步骤。
+也可以在项目虚拟环境中手动执行。
 
-### Docker 端口占用
+### 8765 端口已占用
+
+Docker：
 
 ```bash
 BOSS_WEB_PORT=9000 docker compose -f docker-compose.recruiter.yml up -d --build
 ```
 
-Windows Docker 启动器会拒绝 0、65536 和非整数端口。
+Windows Docker 启动器会拒绝非法端口值。
 
-### PDF 无法读取
+### PDF 无法解析
 
-先确认 PDF 中的文字可以被鼠标选中复制；扫描图片 PDF 当前没有 OCR。
+确认 PDF 中的文字能被鼠标选择和复制。纯图片/扫描版 PDF 当前没有 OCR。
 
-### AI 评分偏低或进入人工复核
+### AI 评分突然变低
 
-检查评分维度是否缺少简历证据，或必需硬性条件是否为 `missing / unclear`。这是证据门禁的预期行为。
+先检查：
 
-更多： [快速开始](docs/getting-started.md) · [排障指南](docs/troubleshooting.md) · [平台风险](docs/platform-risk.md)。
+- 评分维度是否有简历证据；
+- 硬性要求是否被判为 `missing / unclear`；
+- JD 或评分规则是否刚修改；
+- 简历是否实际提供了岗位要求的信息。
+
+“无证据不加分”是当前设计，而不是异常。
+
+### 增量筛选时 AI 没配置
+
+如果全部候选人都未变化，系统可以直接跳过，不需要调用模型；只有出现需要重新评估的简历时才会解析 AI 配置。
 
 ---
 
 ## ⚠️ 已知边界
 
-- Web 工作台当前主要面向本地单用户，暂未实现中心化多租户/RBAC；
-- 扫描版 PDF 暂无 OCR；
-- Docker 中的 BOSS 浏览器登录不如 Windows 原生环境直接；
-- 平台页面、端点和风控策略可能变化；
-- 不承诺平台私有接口长期稳定；
-- AI 输出必须由招聘人员复核；
-- 本地保存候选人联系方式时，使用者仍需负责访问控制、保留期限和合法使用。
+- 当前主要面向本地单用户，不是中心化多租户 ATS；
+- 暂无 RBAC / SSO；
+- 扫描图片 PDF 暂无 OCR；
+- Docker 内直接完成 BOSS 浏览器登录不如 Windows 原生环境顺畅；
+- BOSS 页面、私有端点和风控策略可能变化，不承诺长期稳定；
+- 不自动发送候选人消息；
+- 不自动录用或淘汰；
+- 本地保存候选人数据时，使用者仍需负责组织内部访问权限、数据保留期限和合法使用。
 
 ---
 
-## 🤝 上游、贡献与许可证
+## 📚 相关文档
 
-上游项目：[can4hou6joeng4/boss-agent-cli](https://github.com/can4hou6joeng4/boss-agent-cli)。感谢原作者与贡献者提供 CLI、平台适配、认证、AI、MCP 与工程基础。
+- [快速开始](docs/getting-started.md)
+- [招聘 AI CLI](docs/recruiter-ai.md)
+- [招聘 Web 控制台](docs/recruiter-web.md)
+- [招聘联系人数据处理](docs/recruiter-contact-handling.md)
+- [招聘数据生命周期](docs/recruiter-data-lifecycle.md)
+- [平台风险边界](docs/platform-risk.md)
+- [排障](docs/troubleshooting.md)
+- [Capability Matrix](docs/capability-matrix.md)
 
-当前 fork：[zerlinpi/boss-agent-cli](https://github.com/zerlinpi/boss-agent-cli) · [Issues](https://github.com/zerlinpi/boss-agent-cli/issues) · [Pull Requests](https://github.com/zerlinpi/boss-agent-cli/pulls)
+---
 
-许可证：[MIT](LICENSE)。使用本项目时请遵守相关法律法规、候选人隐私要求以及招聘平台适用协议和规则。
+## 🤝 上游与许可证
+
+上游项目：[`can4hou6joeng4/boss-agent-cli`](https://github.com/can4hou6joeng4/boss-agent-cli)
+
+当前 fork：[`zerlinpi/boss-agent-cli`](https://github.com/zerlinpi/boss-agent-cli)
+
+- Issues: <https://github.com/zerlinpi/boss-agent-cli/issues>
+- Pull Requests: <https://github.com/zerlinpi/boss-agent-cli/pulls>
+- Actions: <https://github.com/zerlinpi/boss-agent-cli/actions>
+
+许可证：[MIT](LICENSE)。原作者和上游贡献者的版权与贡献历史继续保留。
