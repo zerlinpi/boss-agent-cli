@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from boss_agent_cli.recruiter_ai import RecruiterAIError, RecruiterAIStore
+from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
 
 
 def _read_object(path: Path) -> dict[str, Any] | None:
@@ -31,7 +32,7 @@ def _delete_replies(store: RecruiterAIStore, evaluation_ids: set[str]) -> int:
 def delete_candidate_data(store: RecruiterAIStore, evaluation_id: str) -> dict[str, Any]:
 	"""Delete all local evaluations and replies for one logical candidate."""
 	target = store.get_evaluation(evaluation_id)
-	candidate_key = str(target.get("candidate_key") or "")
+	candidate_key = canonical_candidate_key(target)
 	if not candidate_key:
 		raise RecruiterAIError(f"候选人评估缺少 candidate_key: {evaluation_id}")
 
@@ -39,7 +40,7 @@ def delete_candidate_data(store: RecruiterAIStore, evaluation_id: str) -> dict[s
 	evaluation_ids: set[str] = set()
 	for path in store.evaluations_dir.glob("eval_*.json"):
 		payload = _read_object(path)
-		if payload is None or str(payload.get("candidate_key") or "") != candidate_key:
+		if payload is None or canonical_candidate_key(payload) != candidate_key:
 			continue
 		paths.append(path)
 		evaluation_ids.add(str(payload.get("id") or path.stem))
