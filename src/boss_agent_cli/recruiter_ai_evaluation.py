@@ -6,7 +6,7 @@ import json
 import math
 from typing import Any
 
-from boss_agent_cli.ai.service import AIService
+from boss_agent_cli.ai.service import ChatService
 from boss_agent_cli.recruiter_ai_models import (
 	RecruiterAIError,
 	candidate_name,
@@ -189,7 +189,7 @@ def validate_evaluation(
 
 
 def evaluate_resume(
-	service: AIService,
+	service: ChatService,
 	jd_text: str,
 	resume: dict[str, Any],
 	rubric: dict[str, Any] | None = None,
@@ -270,7 +270,7 @@ def build_reply_messages(
 
 
 def generate_reply_draft(
-	service: AIService,
+	service: ChatService,
 	jd_text: str,
 	evaluation: dict[str, Any],
 	conversation: str,
