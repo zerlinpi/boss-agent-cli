@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import sqlite3
 from importlib.resources import files
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import boss_agent_cli.recruiter_ai_store as recruiter_store_module
 from boss_agent_cli.recruiter_ai import RecruiterAIError, candidate_name
 from boss_agent_cli.recruiter_ai_models import stable_hash
 from boss_agent_cli.web import controller as controller_module
 from boss_agent_cli.web.deletion import delete_candidate_data, delete_job_data
-from boss_agent_cli.web.tasks import TaskManager
 
 _INSTALLED = False
 _SERVER_INSTALLED = False
@@ -105,7 +103,6 @@ def install_controller_extensions() -> None:
 	setattr(controller_cls, "save_job", save_job)
 	setattr(controller_cls, "mark_candidate", mark_candidate)
 	_install_stable_web_candidate_key()
-	_install_sqlite_pragmas()
 
 
 def _install_stable_web_candidate_key() -> None:
@@ -128,36 +125,15 @@ def _install_stable_web_candidate_key() -> None:
 	setattr(recruiter_store_module, "candidate_key", candidate_key)
 
 
-def _install_sqlite_pragmas() -> None:
-	original_init = TaskManager.__init__
-	if getattr(original_init, "_boss_lifecycle_wrapped", False):
-		return
-
-	def init(self: Any, *args: Any, **kwargs: Any) -> None:
-		original_init(self, *args, **kwargs)
-		database = getattr(self, "_db", None)
-		if database is None:
-			return
-		try:
-			database.execute("PRAGMA journal_mode=WAL")
-			database.execute("PRAGMA synchronous=NORMAL")
-			database.execute("PRAGMA busy_timeout=5000")
-			database.commit()
-		except sqlite3.Error:
-			return
-
-	setattr(init, "_boss_lifecycle_wrapped", True)
-	setattr(TaskManager, "__init__", init)
-
-
 def install_server_extensions(server_module: Any) -> None:
-	"""Append lifecycle assets and enforce loopback-only Host/Origin requests."""
+	"""Install assets, task-aware deletion, and loopback-only request checks."""
 	global _SERVER_INSTALLED
 	if _SERVER_INSTALLED:
 		return
 	_SERVER_INSTALLED = True
 	application_cls = server_module.RecruiterWebApplication
 	original_asset: Callable[..., tuple[bytes, str]] = application_cls.asset
+	original_post: Callable[..., Any] = application_cls.post
 
 	def asset(self: Any, name: str) -> tuple[bytes, str]:
 		content, content_type = original_asset(self, name)
@@ -167,11 +143,47 @@ def install_server_extensions(server_module: Any) -> None:
 			content += b"\n" + files("boss_agent_cli.web.assets").joinpath("lifecycle.css").read_bytes()
 		return content, content_type
 
+	def post(self: Any, path: str, payload: dict[str, Any]) -> Any:
+		if path == "/api/jobs" and payload.get("_delete"):
+			job_key = controller_module._safe_identifier(str(payload.get("job_key") or ""), label="岗位标识")
+			if self.tasks.has_active_screening(job_key):
+				raise controller_module.WebConsoleError(
+					"SCREENING_IN_PROGRESS",
+					"该岗位仍有筛选任务运行，请等待任务结束后再删除",
+					status=409,
+				)
+			result = original_post(self, path, payload)
+			if isinstance(result, dict):
+				result["task_records_deleted"] = self.tasks.delete_for_job(job_key)
+			return result
+
+		if path.startswith("/api/candidates/") and path.endswith("/status") and payload.get("status") == "__delete__":
+			evaluation_id = unquote(path[len("/api/candidates/"):-len("/status")].strip("/"))
+			try:
+				detail = self.controller.candidate_detail(evaluation_id)
+			except Exception:
+				detail = {}
+			job_key = str(detail.get("job_key") or "") if isinstance(detail, dict) else ""
+			if self.tasks.has_active_screening(job_key or None):
+				raise controller_module.WebConsoleError(
+					"SCREENING_IN_PROGRESS",
+					"候选人关联的筛选任务仍在运行，请等待任务结束后再删除",
+					status=409,
+				)
+			result = original_post(self, path, payload)
+			if isinstance(result, dict):
+				deleted_ids = [str(item) for item in result.get("deleted_evaluation_ids", []) if item]
+				result["task_records_scrubbed"] = self.tasks.scrub_evaluations(deleted_ids)
+			return result
+
+		return original_post(self, path, payload)
+
 	setattr(application_cls, "asset", asset)
+	setattr(application_cls, "post", post)
 
 	handler_cls = server_module.RecruiterRequestHandler
 	original_get = handler_cls.do_GET
-	original_post = handler_cls.do_POST
+	original_handler_post = handler_cls.do_POST
 
 	def request_allowed(handler: Any) -> bool:
 		if is_loopback_authority(handler.headers.get("Host", "")) and is_loopback_origin(handler.headers.get("Origin", "")):
@@ -189,7 +201,7 @@ def install_server_extensions(server_module: Any) -> None:
 
 	def do_post(self: Any) -> None:
 		if request_allowed(self):
-			original_post(self)
+			original_handler_post(self)
 
 	setattr(handler_cls, "do_GET", do_get)
 	setattr(handler_cls, "do_POST", do_post)
