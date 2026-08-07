@@ -39,13 +39,12 @@ def test_different_job_screening_submission_is_not_blocked_by_guard(tmp_path):
 			lambda progress: (release.wait(2), {"job_key": "java"})[1],
 			metadata={"job_key": "java"},
 		)
-		# The guard should allow a different job through to normal validation.
-		with pytest.raises(WebConsoleError) as exc_info:
-			application.post(
-				"/api/screen/local",
-				{"job_key": "python", "documents": [{"name": "resume.txt"}]},
-			)
-		assert exc_info.value.code != "SCREENING_IN_PROGRESS"
+		task = application.post(
+			"/api/screen/local",
+			{"job_key": "python", "documents": [{"name": "resume.txt"}]},
+		)
+		assert task["kind"] == "screen-local"
+		assert task["metadata"]["job_key"] == "python"
 	finally:
 		release.set()
 		application.tasks.close()
