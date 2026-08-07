@@ -14,6 +14,10 @@ _SCREEN_CACHE: ContextVar[dict[tuple[int, str], dict[str, dict[str, Any]]] | Non
 	"boss_recruiter_screen_cache",
 	default=None,
 )
+_EVALUATION_SNAPSHOT: ContextVar[dict[int, list[dict[str, Any]] | None] | None] = ContextVar(
+	"boss_recruiter_evaluation_snapshot",
+	default=None,
+)
 
 
 @contextmanager
@@ -38,7 +42,7 @@ def screening_cache_scope(store: Any, job_key: str) -> Iterator[None]:
 
 
 def install_screening_cache() -> None:
-	"""Cache latest candidate records during screening and composite read requests."""
+	"""Cache evaluation reads during screening and composite Web requests."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -46,14 +50,29 @@ def install_screening_cache() -> None:
 
 	controller_cls = controller_module.RecruiterWebController
 	store_cls = controller_module.RecruiterAIStore
+	original_list: Callable[..., list[dict[str, Any]]] = store_cls.list_evaluations
 	original_latest: Callable[..., dict[str, dict[str, Any]]] = store_cls.latest_by_candidate
 	original_save: Callable[..., dict[str, Any]] = store_cls.save_evaluation
+	original_bootstrap: Callable[..., dict[str, Any]] = controller_cls.bootstrap
 	original_screen_local: Callable[..., dict[str, Any]] = controller_cls.screen_local
 	original_screen_boss: Callable[..., dict[str, Any]] = controller_cls.screen_boss
 	original_candidates: Callable[..., dict[str, Any]] = controller_cls.candidates
 	original_report: Callable[..., dict[str, Any]] = controller_cls.report
 	original_analytics: Callable[..., dict[str, Any]] = controller_cls.analytics
 	setattr(store_cls, "_boss_uncached_latest_by_candidate", original_latest)
+
+	def list_evaluations(self: Any, *, job_key: str | None = None) -> list[dict[str, Any]]:
+		snapshot = _EVALUATION_SNAPSHOT.get()
+		store_id = id(self)
+		if snapshot is None or store_id not in snapshot:
+			return original_list(self, job_key=job_key)
+		records = snapshot[store_id]
+		if records is None:
+			records = original_list(self, job_key=None)
+			snapshot[store_id] = records
+		if job_key is None:
+			return list(records)
+		return [record for record in records if record.get("job_key") == job_key]
 
 	def latest_by_candidate(self: Any, *, job_key: str) -> dict[str, dict[str, Any]]:
 		scope = _SCREEN_CACHE.get()
@@ -72,6 +91,17 @@ def install_screening_cache() -> None:
 			if cached is not None:
 				cached[canonical_candidate_key(record)] = record
 		return record
+
+	def bootstrap(self: Any) -> dict[str, Any]:
+		snapshot = _EVALUATION_SNAPSHOT.get()
+		if snapshot is not None:
+			return original_bootstrap(self)
+		# Lazy None means an installation with no job profiles does not scan evaluations at all.
+		token = _EVALUATION_SNAPSHOT.set({id(self.store): None})
+		try:
+			return original_bootstrap(self)
+		finally:
+			_EVALUATION_SNAPSHOT.reset(token)
 
 	def screen_local(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
 		job_key = str(payload.get("job_key") or "").strip()
@@ -105,8 +135,10 @@ def install_screening_cache() -> None:
 		with screening_cache_scope(self.store, job_key):
 			return original_analytics(self, job_key)
 
+	setattr(store_cls, "list_evaluations", list_evaluations)
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
 	setattr(store_cls, "save_evaluation", save_evaluation)
+	setattr(controller_cls, "bootstrap", bootstrap)
 	setattr(controller_cls, "screen_local", screen_local)
 	setattr(controller_cls, "screen_boss", screen_boss)
 	setattr(controller_cls, "candidates", candidates)
