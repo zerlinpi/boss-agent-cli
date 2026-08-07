@@ -5,11 +5,19 @@ from __future__ import annotations
 import re
 
 _PROTECTED_ATTRIBUTE = re.compile(
-	r"婚育|结婚|未婚|已婚|怀孕|备孕|生育|孩子|年龄|性别|民族|宗教|政治面貌|"
-	r"健康状况|疾病|残疾|户籍性质",
+	r"婚育|婚姻状况|结婚|未婚|已婚|怀孕|孕期|备孕|生育|育儿|孩子|家庭情况|"
+	r"年龄|出生日期|生日|性别|民族|种族|国籍|宗教|政治面貌|政治身份|党派|党员|"
+	r"健康状况|疾病|残疾|残障|户籍性质|户口|籍贯|"
+	r"\bage\b|\bgender\b|marital\s*status|pregnan|fertility|disabilit|religion|"
+	r"\brace\b|ethnicity|nationality|political\s*affiliation|health\s*status",
 	re.IGNORECASE,
 )
-_EMPLOYMENT_PROMISE = re.compile(r"保证录用|一定录用|确定录用|已经录用|直接录用|肯定录用")
+_EMPLOYMENT_PROMISE = re.compile(
+	r"保证录用|一定录用|确定录用|已经录用|直接录用|肯定录用|你已被录用|你被录用|"
+	r"录用已确定|(?:offer|Offer)\s*已(?:确认|确定)|直接发\s*(?:offer|Offer)|"
+	r"guaranteed\s+(?:offer|employment)|definitely\s+hired",
+	re.IGNORECASE,
+)
 _PHONE = re.compile(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d(?:[- ]?\d){8}(?!\d)")
 _LANDLINE = re.compile(r"(?<!\d)0\d{2,3}[- ]?\d{7,8}(?!\d)")
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
