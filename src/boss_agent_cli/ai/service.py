@@ -147,7 +147,7 @@ class AIService:
 				if attempt < _MAX_ATTEMPTS - 1:
 					time.sleep(_retry_delay(None, attempt))
 					continue
-				raise AIServiceError(f"网络连接失败: {exc}") from exc
+				raise AIServiceError(f"网络请求失败: {exc}") from exc
 			except httpx.RequestError as exc:
 				raise AIServiceError(f"网络请求失败: {exc}") from exc
 		if response is None:
