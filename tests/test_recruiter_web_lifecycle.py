@@ -1,5 +1,6 @@
 from boss_agent_cli.recruiter_ai import normalize_rubric, validate_evaluation
 from boss_agent_cli.web import RecruiterWebController
+from boss_agent_cli.web.lifecycle import is_loopback_authority, is_loopback_origin
 from boss_agent_cli.web.server import RecruiterWebApplication
 
 
@@ -53,6 +54,19 @@ def test_uploaded_resume_keeps_stable_candidate_key_across_revisions(tmp_path):
 
 	assert first["candidate_key"] == second["candidate_key"]
 	assert len(controller.store.latest_by_candidate(job_key="java")) == 1
+
+
+def test_loopback_host_and_origin_validation():
+	assert is_loopback_authority("127.0.0.1:8765")
+	assert is_loopback_authority("localhost:8765")
+	assert is_loopback_authority("[::1]:8765")
+	assert not is_loopback_authority("evil.example:8765")
+	assert not is_loopback_authority("")
+	assert is_loopback_origin("")
+	assert is_loopback_origin("http://127.0.0.1:8765")
+	assert is_loopback_origin("http://localhost:8765")
+	assert not is_loopback_origin("https://localhost:8765")
+	assert not is_loopback_origin("http://evil.example")
 
 
 def test_lifecycle_assets_are_appended(tmp_path):
