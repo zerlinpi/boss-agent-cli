@@ -1,7 +1,13 @@
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ComposeFile = Join-Path $Root 'docker-compose.recruiter.yml'
-$Port = if ($env:BOSS_WEB_PORT) { $env:BOSS_WEB_PORT } else { '8765' }
+$PortText = if ($env:BOSS_WEB_PORT) { $env:BOSS_WEB_PORT.Trim() } else { '8765' }
+$ParsedPort = 0
+if (-not [int]::TryParse($PortText, [ref]$ParsedPort) -or $ParsedPort -lt 1 -or $ParsedPort -gt 65535) {
+    throw 'BOSS_WEB_PORT must be an integer between 1 and 65535.'
+}
+$Port = $ParsedPort.ToString()
+$env:BOSS_WEB_PORT = $Port
 $Url = "http://127.0.0.1:$Port/"
 
 function Resolve-Docker {
@@ -14,6 +20,7 @@ function Resolve-Docker {
 
 Write-Host ''
 Write-Host '=== BOSS Recruit AI - Docker One Click ===' -ForegroundColor Cyan
+Write-Host "Web address: $Url" -ForegroundColor DarkGray
 $Docker = Resolve-Docker
 if (-not $Docker) {
     Write-Host 'Docker Desktop was not found. Trying winget installation...' -ForegroundColor Yellow
@@ -45,7 +52,7 @@ if ($LASTEXITCODE -ne 0) {
 Set-Location $Root
 Write-Host '[1/2] Building and starting container...' -ForegroundColor Cyan
 & $Docker compose -f $ComposeFile up -d --build
-if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed. Check whether the selected host port is already in use.' }
 
 Write-Host '[2/2] Waiting for Web workspace...' -ForegroundColor Cyan
 $healthy = $false
