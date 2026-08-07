@@ -4,8 +4,11 @@ import sqlite3
 import time
 from pathlib import Path
 from threading import Event
+from unittest.mock import patch
 
-from boss_agent_cli.web import RecruiterWebController
+import pytest
+
+from boss_agent_cli.web import RecruiterWebController, WebConsoleError
 from boss_agent_cli.web.server import RecruiterWebApplication
 from boss_agent_cli.web.tasks import TaskManager
 
@@ -113,6 +116,39 @@ def test_cancelling_task_is_finalized_after_service_restart(tmp_path: Path) -> N
 		assert reloaded.has_active_screening("java") is False
 	finally:
 		reloaded.close()
+
+
+def test_task_queue_rejects_more_than_twenty_active_tasks(tmp_path: Path) -> None:
+	manager = TaskManager(storage_path=tmp_path / "tasks.db", max_workers=1)
+	release = Event()
+	started = Event()
+	try:
+		manager.submit("blocker", lambda progress: (started.set(), release.wait(3), {"ok": True})[2])
+		assert started.wait(1)
+		for _ in range(19):
+			manager.submit("queued", lambda progress: {"ok": True})
+
+		with pytest.raises(WebConsoleError) as caught:
+			manager.submit("overflow", lambda progress: {"ok": True})
+		assert caught.value.code == "TASK_QUEUE_FULL"
+		assert caught.value.status == 429
+	finally:
+		release.set()
+		manager.close()
+
+
+def test_executor_submit_failure_does_not_leave_queued_task(tmp_path: Path) -> None:
+	manager = TaskManager(storage_path=tmp_path / "tasks.db", max_workers=1)
+	try:
+		with patch.object(manager._executor, "submit", side_effect=RuntimeError("executor shutdown")):
+			task = manager.submit("test", lambda progress: {"ok": True})
+		assert task["status"] == "failed"
+		assert task["error"]["code"] == "TASK_SUBMIT_FAILED"
+		persisted = manager.get(task["id"])
+		assert persisted is not None
+		assert persisted["status"] == "failed"
+	finally:
+		manager.close()
 
 
 def test_web_cancel_endpoint_and_asset_are_installed(tmp_path: Path) -> None:
