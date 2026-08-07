@@ -3,6 +3,22 @@
 	const MAX_RECRUITER_JSON_CHARS = 500000;
 	const MAX_RECRUITER_FILES = 100;
 	const MAX_RECRUITER_FILE_BYTES = 12 * 1024 * 1024;
+	const inFlightWrites = new Map();
+
+	const originalApi = api;
+	api = function reliableApi(path, options = {}) {
+		const method = String(options.method || "GET").toUpperCase();
+		if (method === "GET" || method === "HEAD") return originalApi(path, options);
+		const body = typeof options.body === "string" ? options.body : "";
+		const key = `${method}\n${path}\n${body}`;
+		const existing = inFlightWrites.get(key);
+		if (existing) return existing;
+		const request = Promise.resolve(originalApi(path, options)).finally(() => {
+			if (inFlightWrites.get(key) === request) inFlightWrites.delete(key);
+		});
+		inFlightWrites.set(key, request);
+		return request;
+	};
 
 	async function safeCopy(text) {
 		if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
