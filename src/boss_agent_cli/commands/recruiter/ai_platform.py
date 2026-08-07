@@ -17,6 +17,7 @@ from boss_agent_cli.commands.recruiter.ai_common import (
 	emit_input_error,
 	evaluate_local,
 	platform_error,
+	ranked_records_for_run,
 	resolve_job,
 	service_for,
 )
@@ -217,13 +218,13 @@ def screen_applications_cmd(
 			except (RecruiterAIError, AIServiceError) as exc:
 				failed.append({"candidate": str(ref.get("name") or geek_id), "error": str(exc)})
 
-		# Restrict automatic drafts to candidates newly evaluated by this invocation. Historical
-		# candidates remain in the displayed ranking, but an incremental rerun will not re-read their
-		# chat history or spend another model call merely because they are still highly ranked.
-		rank_limit = 10_000 if draft_top and processed else top
-		ranked_records = store.rank(job_key=job_key, top=rank_limit)
-		processed_ids = set(processed)
-		draft_records = [record for record in ranked_records if str(record.get("id") or "") in processed_ids]
+		ranked_records, draft_records = ranked_records_for_run(
+			store,
+			job_key=job_key,
+			top=top,
+			draft_top=draft_top,
+			processed_ids=processed,
+		)
 		drafts: list[dict[str, Any]] = []
 		draft_failed: list[dict[str, str]] = []
 		if draft_top and draft_records:
