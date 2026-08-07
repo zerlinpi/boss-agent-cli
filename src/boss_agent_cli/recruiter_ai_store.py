@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +45,13 @@ def _safe_storage_key(value: str, *, label: str, max_length: int = 160) -> str:
 	if _WINDOWS_DEVICE_NAME.fullmatch(key):
 		raise RecruiterAIError(f"{label} 使用了 Windows 保留文件名")
 	return key
+
+
+def _finite_sort_value(value: Any) -> float:
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		return -1.0
+	number = float(value)
+	return number if math.isfinite(number) else -1.0
 
 
 class RecruiterAIStore:
@@ -210,14 +218,14 @@ class RecruiterAIStore:
 			evaluation = record.get("evaluation")
 			if not isinstance(evaluation, dict):
 				return (-1.0, -1.0, "")
-			score, confidence = evaluation.get("total_score"), evaluation.get("confidence")
 			return (
-				float(score) if isinstance(score, (int, float)) and not isinstance(score, bool) else -1.0,
-				float(confidence) if isinstance(confidence, (int, float)) and not isinstance(confidence, bool) else -1.0,
+				_finite_sort_value(evaluation.get("total_score")),
+				_finite_sort_value(evaluation.get("confidence")),
 				str(record.get("created_at", "")),
 			)
+		limit = max(0, min(int(top), 10000))
 		records = sorted(self.latest_by_candidate(job_key=job_key).values(), key=sort_key, reverse=True)
-		return records[:top]
+		return records[:limit]
 
 	def set_status(self, record_id: str, status: str, *, note: str = "") -> dict[str, Any]:
 		if status not in CANDIDATE_STATUSES:
@@ -225,7 +233,7 @@ class RecruiterAIStore:
 		record_id = _safe_storage_key(record_id, label="评估记录 ID")
 		record = self.get_evaluation(record_id)
 		record["status"] = status
-		record["status_note"] = note
+		record["status_note"] = str(note)[:5000]
 		record["updated_at"] = _utc_now()
 		self._write(self.evaluations_dir / f"{record_id}.json", record)
 		return record
@@ -238,11 +246,10 @@ class RecruiterAIStore:
 		conversation: str,
 		draft: dict[str, Any],
 	) -> dict[str, Any]:
-		identity = ""
-		try:
-			identity = str(self.get_evaluation(evaluation_id).get("candidate_name") or "").strip()
-		except RecruiterAIError:
-			pass
+		# Replies must belong to a real evaluation so deletion and audit lifecycles cannot leave orphans.
+		evaluation_id = _safe_storage_key(evaluation_id, label="评估记录 ID")
+		evaluation_record = self.get_evaluation(evaluation_id)
+		identity = str(evaluation_record.get("candidate_name") or "").strip()
 		safe_conversation = redact_contact_text(conversation)
 		if len(identity) >= 2:
 			safe_conversation = safe_conversation.replace(identity, "[姓名已脱敏]")
