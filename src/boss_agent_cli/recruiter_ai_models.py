@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -170,6 +171,7 @@ def redact_resume_for_model(resume: dict[str, Any]) -> dict[str, Any]:
 
 def redact_contact_text(text: str) -> str:
 	text = re.sub(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d(?:[- ]?\d){8}(?!\d)", "[手机号已脱敏]", text)
+	text = re.sub(r"(?<!\d)0\d{2,3}[- ]?\d{7,8}(?!\d)", "[座机已脱敏]", text)
 	text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[邮箱已脱敏]", text)
 	text = re.sub(r"(?<!\d)\d{17}[\dXx](?!\d)|(?<!\d)\d{15}(?!\d)", "[身份证号已脱敏]", text)
 	text = re.sub(r"(?:QQ|qq)\s*[:：]?\s*[1-9]\d{4,11}", "[QQ 已脱敏]", text)
@@ -200,6 +202,36 @@ def candidate_key(resume: dict[str, Any], source: dict[str, Any] | None = None) 
 	return f"local:{stable_hash(payload)[:24]}"
 
 
+def _positive_integer(value: Any, *, label: str) -> int:
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		raise RecruiterAIError(f"{label} 必须是正整数")
+	number = float(value)
+	if not math.isfinite(number) or not number.is_integer() or number <= 0:
+		raise RecruiterAIError(f"{label} 必须是正整数")
+	return int(number)
+
+
+def _threshold_integer(value: Any, *, label: str) -> int:
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		raise RecruiterAIError(f"{label} 必须是 0-100 的整数")
+	number = float(value)
+	if not math.isfinite(number) or not number.is_integer() or not 0 <= number <= 100:
+		raise RecruiterAIError(f"{label} 必须是 0-100 的整数")
+	return int(number)
+
+
+def _max_questions(value: Any) -> int:
+	if isinstance(value, bool):
+		raise RecruiterAIError("max_questions 必须是 1-10 的整数")
+	try:
+		number = float(value)
+	except (TypeError, ValueError) as exc:
+		raise RecruiterAIError("max_questions 必须是 1-10 的整数") from exc
+	if not math.isfinite(number) or not number.is_integer():
+		raise RecruiterAIError("max_questions 必须是 1-10 的整数")
+	return max(1, min(10, int(number)))
+
+
 def normalize_rubric(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 	"""Normalize a configurable scoring rubric into a strict local contract."""
 	payload = payload or {}
@@ -211,43 +243,53 @@ def normalize_rubric(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 	for item in dimensions_input:
 		if not isinstance(item, dict):
 			raise RecruiterAIError("每个评分维度必须是对象")
-		name, max_score = str(item.get("name", "")).strip(), item.get("max_score")
+		name = str(item.get("name", "")).strip()
 		if not name or name in seen:
 			raise RecruiterAIError("评分维度 name 不能为空且不能重复")
-		if not isinstance(max_score, (int, float)) or isinstance(max_score, bool) or max_score <= 0:
-			raise RecruiterAIError(f"评分维度 {name} 的 max_score 必须大于 0")
+		max_score = _positive_integer(item.get("max_score"), label=f"评分维度 {name} 的 max_score")
 		seen.add(name)
 		dimensions.append({
-			"name": name, "max_score": int(max_score),
+			"name": name,
+			"max_score": max_score,
 			"description": str(item.get("description", "")).strip(),
 		})
+
 	thresholds = dict(DEFAULT_THRESHOLDS)
 	raw_thresholds = payload.get("thresholds")
+	if raw_thresholds is not None and not isinstance(raw_thresholds, dict):
+		raise RecruiterAIError("thresholds 必须是对象")
 	if isinstance(raw_thresholds, dict):
 		for key in thresholds:
-			value = raw_thresholds.get(key)
-			if isinstance(value, (int, float)) and not isinstance(value, bool):
-				thresholds[key] = int(value)
+			if key in raw_thresholds:
+				thresholds[key] = _threshold_integer(raw_thresholds[key], label=f"评分阈值 {key}")
 	if not 0 <= thresholds["manual_review"] <= thresholds["interview"] <= thresholds["strong_interview"] <= 100:
 		raise RecruiterAIError("评分阈值必须满足 manual_review <= interview <= strong_interview")
+
 	hard_requirements = payload.get("hard_requirements", [])
 	if not isinstance(hard_requirements, list):
 		raise RecruiterAIError("hard_requirements 必须是列表")
 	normalized_hard: list[dict[str, Any]] = []
+	seen_hard: set[str] = set()
 	for item in hard_requirements:
+		requirement = ""
+		required = True
 		if isinstance(item, str):
-			normalized_hard.append({"requirement": item, "required": True})
-		elif isinstance(item, dict) and str(item.get("requirement", "")).strip():
-			normalized_hard.append({
-				"requirement": str(item["requirement"]).strip(),
-				"required": bool(item.get("required", True)),
-			})
+			requirement = item.strip()
+		elif isinstance(item, dict):
+			requirement = str(item.get("requirement", "")).strip()
+			required = bool(item.get("required", True))
+		if not requirement or requirement in seen_hard:
+			continue
+		seen_hard.add(requirement)
+		normalized_hard.append({"requirement": requirement, "required": required})
+
 	return {
 		"version": str(payload.get("version") or "1"),
-		"dimensions": dimensions, "thresholds": thresholds,
+		"dimensions": dimensions,
+		"thresholds": thresholds,
 		"hard_requirements": normalized_hard,
 		"instructions": str(payload.get("instructions", "")).strip(),
-		"max_questions": max(1, min(10, int(payload.get("max_questions", 4)))),
+		"max_questions": _max_questions(payload.get("max_questions", 4)),
 	}
 
 
@@ -314,6 +356,10 @@ def conversation_to_text(payload: Any) -> str:
 		if content in (None, ""):
 			continue
 		sender = item.get("from")
-		sender_text = str(sender.get("name") or sender.get("type") or "unknown") if isinstance(sender, dict) else str(item.get("sender") or item.get("direction") or "unknown")
+		sender_text = (
+			str(sender.get("name") or sender.get("type") or "unknown")
+			if isinstance(sender, dict)
+			else str(item.get("sender") or item.get("direction") or "unknown")
+		)
 		lines.append(f"{sender_text}: {content}")
 	return "\n".join(lines)
