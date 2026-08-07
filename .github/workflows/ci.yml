@@ -108,6 +108,7 @@ jobs:
           from boss_agent_cli.api.client import BossClient
           from boss_agent_cli.cache.store import CacheStore
           from boss_agent_cli.commands.schema import schema_cmd
+          from boss_agent_cli.web import RecruiterWebController, build_server
           print('All critical imports OK')
           "
 
@@ -132,17 +133,18 @@ jobs:
         run: uv run mypy src/boss_agent_cli
 
   docker:
-    # 容器镜像必须每次构建，否则会像此前那个无人引用的 Dockerfile 一样静默腐烂。
-    #
-    # 刻意用 runner 自带的 docker build，不上 buildx / GHA 缓存：docker-container
-    # driver 需要额外从 Docker Hub 拉 moby/buildkit，`# syntax=` 前端又要再拉一次
-    # docker/dockerfile——两者都曾在此 job 上因 Docker Hub 超时而假红。构建本身只要
-    # 几十秒，省下的缓存收益远不及这两个外部依赖带来的偶发失败。
+    # CLI/MCP 与招聘 Web 都必须构建；避免新的一键启动镜像在未被 CI 使用时静默腐烂。
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build image
+      - name: Validate recruiter compose file
+        env:
+          BOSS_WEB_PORT: "18765"
+        run: docker compose -f docker-compose.recruiter.yml config >/dev/null
+
+      - name: Build CLI/MCP image
         run: docker build -t boss-agent-cli:ci .
 
       - name: Verify the CLI entry point and JSON envelope
@@ -157,6 +159,34 @@ jobs:
             | docker run --rm -i boss-agent-cli:ci \
             | python3 -c "import sys, json; d = json.loads(sys.stdin.readline()); assert d['result']['serverInfo']['name'] == 'boss-agent-cli', d; print('MCP initialize ok')"
 
-      - name: Verify it runs as non-root
+      - name: Verify CLI/MCP image runs as non-root
+        run: test "$(docker run --rm --entrypoint id boss-agent-cli:ci -u)" != "0"
+
+      - name: Build recruiter Web image
+        run: docker build -f Dockerfile.recruiter-web -t boss-recruit-ai:ci .
+
+      - name: Verify recruiter Web image runs as non-root
+        run: test "$(docker run --rm --entrypoint id boss-recruit-ai:ci -u)" != "0"
+
+      - name: Smoke test recruiter Web image
+        shell: bash
         run: |
-          test "$(docker run --rm --entrypoint id boss-agent-cli:ci -u)" != "0"
+          set -euo pipefail
+          container_id="$(docker run -d -p 127.0.0.1:18765:8765 boss-recruit-ai:ci)"
+          cleanup() { docker rm -f "$container_id" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --show-error http://127.0.0.1:18765/ >/tmp/recruiter-home.html; then
+              break
+            fi
+            if ! docker inspect "$container_id" --format '{{.State.Running}}' | grep -q true; then
+              docker logs "$container_id"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent --show-error http://127.0.0.1:18765/ >/tmp/recruiter-home.html
+          grep -q 'BOSS' /tmp/recruiter-home.html
+          docker inspect "$container_id" --format '{{json .State.Health.Status}}'
