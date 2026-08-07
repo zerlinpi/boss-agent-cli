@@ -7,6 +7,7 @@ controller. It is installed once by :mod:`boss_agent_cli.web`.
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -14,6 +15,9 @@ from typing import Any, Callable
 from boss_agent_cli.web import controller as controller_module
 
 _INSTALLED = False
+_ALLOWED_REPLY_INTENTS = {
+	"auto", "acknowledge", "ask_followup", "invite_interview", "clarify", "decline_draft",
+}
 
 
 class _LazyAIService:
@@ -44,6 +48,13 @@ def _as_utc(value: Any) -> datetime | None:
 	return parsed.astimezone(timezone.utc)
 
 
+def _finite_number(value: Any) -> float | None:
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		return None
+	number = float(value)
+	return number if math.isfinite(number) else None
+
+
 def _normalize_friend_id(value: Any) -> int | None:
 	"""Return the integer friend id required by chat_history, or None when malformed."""
 	if isinstance(value, bool) or value in (None, ""):
@@ -55,8 +66,40 @@ def _normalize_friend_id(value: Any) -> int | None:
 	return parsed if parsed > 0 else None
 
 
+def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int, label: str) -> int:
+	if value in (None, ""):
+		return default
+	if isinstance(value, bool):
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是整数")
+	try:
+		parsed = int(value)
+	except (TypeError, ValueError) as exc:
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是整数") from exc
+	if not minimum <= parsed <= maximum:
+		raise controller_module.WebConsoleError(
+			"INVALID_PARAM", f"{label} 必须在 {minimum}-{maximum} 之间"
+		)
+	return parsed
+
+
+def _boolean(value: Any, *, default: bool = False, label: str) -> bool:
+	if value is None:
+		return default
+	if isinstance(value, bool):
+		return value
+	if value in (0, 1):
+		return bool(value)
+	if isinstance(value, str):
+		normalized = value.strip().lower()
+		if normalized in {"true", "1", "yes", "on"}:
+			return True
+		if normalized in {"false", "0", "no", "off", ""}:
+			return False
+	raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是布尔值")
+
+
 def install_controller_reliability() -> None:
-	"""Install lazy AI resolution, stable refs, bounded reads, and legacy-safe analytics."""
+	"""Install lazy AI resolution, bounded APIs, stable refs, and legacy-safe analytics."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -65,6 +108,9 @@ def install_controller_reliability() -> None:
 	controller_cls = controller_module.RecruiterWebController
 	original_service = controller_cls._service
 	original_extract_candidate_ref = controller_module.extract_candidate_ref
+	original_screen_local = controller_cls.screen_local
+	original_screen_boss = controller_cls.screen_boss
+	original_generate_reply = controller_cls.generate_reply
 
 	def lazy_service(self: Any) -> _LazyAIService:
 		return _LazyAIService(self, original_service)
@@ -73,6 +119,34 @@ def install_controller_reliability() -> None:
 		ref = original_extract_candidate_ref(item, default_job_id=default_job_id)
 		ref["friend_id"] = _normalize_friend_id(ref.get("friend_id"))
 		return ref
+
+	def screen_local(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
+		clean = dict(payload)
+		clean["force"] = _boolean(clean.get("force"), label="force")
+		return original_screen_local(self, clean, progress=progress)
+
+	def screen_boss(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
+		clean = dict(payload)
+		clean["pages"] = _bounded_int(clean.get("pages"), default=1, minimum=1, maximum=10, label="pages")
+		clean["limit"] = _bounded_int(clean.get("limit"), default=30, minimum=1, maximum=100, label="limit")
+		clean["draft_top"] = _bounded_int(
+			clean.get("draft_top"), default=0, minimum=0, maximum=20, label="draft_top"
+		)
+		clean["force"] = _boolean(clean.get("force"), label="force")
+		clean["include_chat"] = _boolean(clean.get("include_chat"), label="include_chat")
+		return original_screen_boss(self, clean, progress=progress)
+
+	def generate_reply(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+		clean = dict(payload)
+		intent = str(clean.get("intent") or "auto").strip()
+		if intent not in _ALLOWED_REPLY_INTENTS:
+			raise controller_module.WebConsoleError("INVALID_REPLY_INPUT", f"不支持的回复意图: {intent}")
+		conversation = str(clean.get("conversation") or "")
+		if len(conversation) > 200_000:
+			raise controller_module.WebConsoleError("INVALID_REPLY_INPUT", "聊天上下文不能超过 200000 字符")
+		clean["intent"] = intent
+		clean["conversation"] = conversation
+		return original_generate_reply(self, clean)
 
 	def analytics(self: Any, job_key: str) -> dict[str, Any]:
 		records = list(self.store.latest_by_candidate(job_key=job_key).values())
@@ -83,12 +157,12 @@ def install_controller_reliability() -> None:
 		for record in records:
 			evaluation = record.get("evaluation")
 			if isinstance(evaluation, dict):
-				score = evaluation.get("total_score")
-				confidence = evaluation.get("confidence")
-				if isinstance(score, (int, float)) and not isinstance(score, bool):
-					scores.append(float(score))
-				if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
-					confidences.append(float(confidence))
+				score = _finite_number(evaluation.get("total_score"))
+				confidence = _finite_number(evaluation.get("confidence"))
+				if score is not None:
+					scores.append(score)
+				if confidence is not None:
+					confidences.append(confidence)
 			created = _as_utc(record.get("created_at"))
 			if created is not None and created >= recent_cutoff:
 				recent += 1
@@ -119,8 +193,10 @@ def install_controller_reliability() -> None:
 		}
 
 	def replies(self: Any, *, evaluation_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-		# Keep the API contract bounded even when a caller bypasses the browser UI.
-		bounded_limit = max(1, min(int(limit), 500))
+		try:
+			bounded_limit = max(1, min(int(limit), 500))
+		except (TypeError, ValueError):
+			bounded_limit = 100
 		items: list[dict[str, Any]] = []
 		for path in sorted(self.store.replies_dir.glob("reply_*.json"), reverse=True):
 			try:
@@ -137,6 +213,9 @@ def install_controller_reliability() -> None:
 		return items
 
 	setattr(controller_cls, "_service", lazy_service)
+	setattr(controller_cls, "screen_local", screen_local)
+	setattr(controller_cls, "screen_boss", screen_boss)
+	setattr(controller_cls, "generate_reply", generate_reply)
 	setattr(controller_cls, "analytics", analytics)
 	setattr(controller_cls, "replies", replies)
 	setattr(controller_module, "extract_candidate_ref", extract_candidate_ref)
