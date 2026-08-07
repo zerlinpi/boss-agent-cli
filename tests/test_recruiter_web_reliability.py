@@ -7,6 +7,7 @@ import pytest
 
 from boss_agent_cli.recruiter_ai import normalize_rubric
 from boss_agent_cli.web import RecruiterWebController, build_server
+from boss_agent_cli.web import controller as controller_module
 
 
 def _job(controller: RecruiterWebController, job_key: str = "python") -> dict:
@@ -62,6 +63,20 @@ def test_analytics_accepts_legacy_naive_timestamp(tmp_path):
 	assert analytics["total"] == 1
 	assert analytics["recent_7d"] == 1
 	assert analytics["average_score"] == 88
+
+
+def test_malformed_friend_id_is_ignored_instead_of_crashing_chat_batch():
+	malformed = controller_module.extract_candidate_ref({
+		"friendId": "encrypted-or-invalid",
+		"geekCard": {"geekId": "g1", "securityId": "s1", "name": "Alice"},
+	}, default_job_id="j1")
+	valid = controller_module.extract_candidate_ref({
+		"friendId": "123",
+		"geekCard": {"geekId": "g2", "securityId": "s2", "name": "Bob"},
+	}, default_job_id="j1")
+
+	assert malformed["friend_id"] is None
+	assert valid["friend_id"] == 123
 
 
 def test_native_web_rejects_invalid_explicit_ports(tmp_path):
