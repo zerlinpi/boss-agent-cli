@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Venv = Join-Path $Root '.venv'
 $VenvPython = Join-Path $Venv 'Scripts\python.exe'
+$Patchright = Join-Path $Venv 'Scripts\patchright.exe'
 $Marker = Join-Path $Venv '.recruiter-web-deps.sha256'
 
 function Test-Python([string]$Executable) {
@@ -16,7 +17,7 @@ function Test-Python([string]$Executable) {
 
 function Find-BasePython {
     if (Get-Command py -ErrorAction SilentlyContinue) {
-        foreach ($version in @('-3.12','-3.11','-3.10')) {
+        foreach ($version in @('-3.14','-3.13','-3.12','-3.11','-3.10')) {
             try {
                 $resolved = (& py $version -c "import sys; print(sys.executable)" 2>$null | Select-Object -First 1)
                 if ($LASTEXITCODE -eq 0 -and (Test-Python $resolved)) { return $resolved }
@@ -50,13 +51,15 @@ if (-not $BasePython) {
 }
 
 if ((Test-Path $Venv) -and (-not (Test-Python $VenvPython))) {
-    Write-Host '[1/3] Existing .venv is invalid or too old; rebuilding it...' -ForegroundColor Yellow
+    Write-Host '[1/4] Existing .venv is invalid or too old; rebuilding it...' -ForegroundColor Yellow
     Remove-Item -Recurse -Force $Venv
 }
 if (-not (Test-Path $VenvPython)) {
-    Write-Host '[1/3] Creating isolated Python environment...' -ForegroundColor Cyan
+    Write-Host '[1/4] Creating isolated Python environment...' -ForegroundColor Cyan
     & $BasePython -m venv $Venv
     if ($LASTEXITCODE -ne 0) { throw 'Virtual environment creation failed.' }
+} else {
+    Write-Host '[1/4] Python environment is ready.' -ForegroundColor DarkGray
 }
 
 $hashInput = @()
@@ -64,7 +67,7 @@ foreach ($fileName in @('pyproject.toml','uv.lock')) {
     $filePath = Join-Path $Root $fileName
     if (Test-Path $filePath) { $hashInput += (Get-FileHash $filePath -Algorithm SHA256).Hash }
 }
-$hashInput += 'recruiter-web-bootstrap-v5'
+$hashInput += 'recruiter-web-bootstrap-v6'
 $bytes = [System.Text.Encoding]::UTF8.GetBytes(($hashInput -join '|'))
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $Fingerprint = ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','') } finally { $sha.Dispose() }
@@ -72,21 +75,31 @@ $InstalledFingerprint = if (Test-Path $Marker) { (Get-Content $Marker -Raw).Trim
 
 $NeedsInstall = $InstalledFingerprint -ne $Fingerprint
 if (-not $NeedsInstall) {
-    & $VenvPython -c "import boss_agent_cli, pypdf" 2>$null
+    & $VenvPython -c "import boss_agent_cli, pypdf, patchright" 2>$null
     $NeedsInstall = $LASTEXITCODE -ne 0
 }
 if ($NeedsInstall) {
-    Write-Host '[2/3] Installing/updating project dependencies (first run may take a few minutes)...' -ForegroundColor Cyan
+    Write-Host '[2/4] Installing/updating project dependencies (first run may take a few minutes)...' -ForegroundColor Cyan
     & $VenvPython -m pip install --disable-pip-version-check --upgrade pip
     if ($LASTEXITCODE -ne 0) { throw 'pip upgrade failed.' }
     & $VenvPython -m pip install --disable-pip-version-check -e $Root 'pypdf>=6,<7'
     if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
     Set-Content -Path $Marker -Value $Fingerprint -Encoding ASCII
 } else {
-    Write-Host '[2/3] Dependencies are ready.' -ForegroundColor DarkGray
+    Write-Host '[2/4] Dependencies are ready.' -ForegroundColor DarkGray
 }
 
-Write-Host '[3/3] Starting recruiter workspace...' -ForegroundColor Green
+Write-Host '[3/4] Checking Patchright Chromium browser kernel...' -ForegroundColor Cyan
+if (Test-Path $Patchright) {
+    & $Patchright install chromium
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning 'Chromium installation failed. The local resume workspace can still run, but BOSS browser login may require Chromium or an installed Chrome browser.'
+    }
+} else {
+    Write-Warning 'Patchright launcher is missing. BOSS browser login may be unavailable until dependencies are repaired.'
+}
+
+Write-Host '[4/4] Starting recruiter workspace...' -ForegroundColor Green
 Write-Host 'The browser will open automatically. Close this window to stop the service.' -ForegroundColor DarkGray
 Set-Location $Root
 & $VenvPython -m boss_agent_cli.web
