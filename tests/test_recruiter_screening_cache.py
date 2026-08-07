@@ -158,3 +158,43 @@ def test_bootstrap_with_no_jobs_does_not_scan_evaluations(tmp_path: Path, monkey
 
 	assert result["onboarding"]["has_candidates"] is False
 	assert evaluation_scans == 0
+
+
+def test_bulk_status_update_scans_evaluation_directory_once(tmp_path: Path, monkeypatch) -> None:
+	controller = RecruiterWebController(tmp_path)
+	rubric = normalize_rubric()
+	ids: list[str] = []
+	for index in range(3):
+		record = controller.store.save_evaluation(
+			job_key="java",
+			jd_text="Java JD",
+			resume={"basic": {"name": f"候选人{index}"}},
+			evaluation=_evaluation(70 + index),
+			source={"type": "zhipin", "geek_id": f"g{index}"},
+			rubric=rubric,
+		)
+		ids.append(record["id"])
+
+	original_glob = Path.glob
+	evaluation_scans = 0
+
+	def counted_glob(path: Path, pattern: str):
+		nonlocal evaluation_scans
+		if path == controller.store.evaluations_dir and pattern == "eval_*.json":
+			evaluation_scans += 1
+		return original_glob(path, pattern)
+
+	monkeypatch.setattr(Path, "glob", counted_glob)
+	result = controller.bulk_mark_candidates({
+		"evaluation_ids": ids,
+		"status": "shortlisted",
+		"note": "批量进入业务复核",
+	})
+
+	assert result["updated_ids"] == ids
+	assert result["failed"] == []
+	assert evaluation_scans == 1
+	for evaluation_id in ids:
+		record = controller.store.get_evaluation(evaluation_id)
+		assert record["status"] == "shortlisted"
+		assert record["status_note"] == "批量进入业务复核"
