@@ -6,7 +6,9 @@ import sqlite3
 from importlib.resources import files
 from typing import Any, Callable
 
-from boss_agent_cli.recruiter_ai import RecruiterAIError
+import boss_agent_cli.recruiter_ai_store as recruiter_store_module
+from boss_agent_cli.recruiter_ai import RecruiterAIError, candidate_name
+from boss_agent_cli.recruiter_ai_models import stable_hash
 from boss_agent_cli.web import controller as controller_module
 from boss_agent_cli.web.deletion import delete_candidate_data, delete_job_data
 from boss_agent_cli.web.tasks import TaskManager
@@ -16,7 +18,7 @@ _SERVER_INSTALLED = False
 
 
 def install_controller_extensions() -> None:
-	"""Add irreversible local deletion and privacy-safe audit behavior."""
+	"""Add irreversible local deletion, stable file identity, and safe audit behavior."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -78,7 +80,28 @@ def install_controller_extensions() -> None:
 
 	setattr(controller_cls, "save_job", save_job)
 	setattr(controller_cls, "mark_candidate", mark_candidate)
+	_install_stable_web_candidate_key()
 	_install_sqlite_pragmas()
+
+
+def _install_stable_web_candidate_key() -> None:
+	original_candidate_key = recruiter_store_module.candidate_key
+	if getattr(original_candidate_key, "_boss_web_stable", False):
+		return
+
+	def candidate_key(resume: dict[str, Any], source: dict[str, Any] | None = None) -> str:
+		source = source or {}
+		filename = str(source.get("filename") or "").strip().lower()
+		if source.get("type") == "web-upload" and filename:
+			identity = {
+				"filename": filename,
+				"name": candidate_name(resume).strip().lower(),
+			}
+			return f"web-upload:{stable_hash(identity)[:24]}"
+		return original_candidate_key(resume, source)
+
+	setattr(candidate_key, "_boss_web_stable", True)
+	setattr(recruiter_store_module, "candidate_key", candidate_key)
 
 
 def _install_sqlite_pragmas() -> None:
