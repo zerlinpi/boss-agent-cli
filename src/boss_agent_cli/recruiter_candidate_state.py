@@ -43,7 +43,7 @@ def install_candidate_state_retention() -> None:
 		return latest
 
 	def set_status(self: Any, record_id: str, status: str, *, note: str = "") -> dict[str, Any]:
-		"""Apply recruiter-owned state to every stored version of the logical candidate."""
+		"""Apply an explicit recruiter state change to every version of the logical candidate."""
 		target = original_set_status(self, record_id, status, note=note)
 		job_key = str(target.get("job_key") or "")
 		candidate_key = canonical_candidate_key(target)
@@ -81,7 +81,9 @@ def install_candidate_state_retention() -> None:
 		# in the default `new` stage must not disappear just because a new AI evaluation version is saved.
 		if status == "new" and not note:
 			return record
-		return self.set_status(str(record.get("id") or ""), status, note=note)
+		# This is inheritance, not a new human decision. Only the new version needs updating: calling
+		# the candidate-wide wrapper here would rescan all historical versions for every re-evaluation.
+		return original_set_status(self, str(record.get("id") or ""), status, note=note)
 
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
 	setattr(store_cls, "set_status", set_status)
