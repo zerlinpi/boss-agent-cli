@@ -7,7 +7,7 @@ from typing import Any
 import click
 
 from boss_agent_cli.ai.config import AIConfigStore
-from boss_agent_cli.ai.service import AIService, AIServiceError
+from boss_agent_cli.ai.service import AIService, AIServiceError, ChatService
 from boss_agent_cli.display import handle_error_output
 from boss_agent_cli.recruiter_ai import (
 	RecruiterAIError,
@@ -58,7 +58,7 @@ def _load_service(ctx: click.Context) -> AIService:
 		) from exc
 
 
-class DeferredAIService(AIService):
+class DeferredAIService:
 	"""Resolve CLI AI configuration only when the first model request is required."""
 
 	def __init__(self, ctx: click.Context) -> None:
@@ -77,7 +77,7 @@ class DeferredAIService(AIService):
 		return self._resolved.chat(messages, temperature=temperature, max_tokens=max_tokens)
 
 
-def service_for(ctx: click.Context, *, deferred: bool = False) -> AIService | None:
+def service_for(ctx: click.Context, *, deferred: bool = False) -> ChatService | None:
 	if deferred:
 		return DeferredAIService(ctx)
 	try:
@@ -131,7 +131,7 @@ def resolve_job(
 
 def evaluate_local(
 	*,
-	service: AIService,
+	service: ChatService,
 	store: RecruiterAIStore,
 	jd_text: str,
 	rubric: dict[str, Any],
@@ -195,7 +195,7 @@ def platform_error(platform: Any, response: Any, fallback: str) -> str:
 
 def draft_for_records(
 	*,
-	service: AIService,
+	service: ChatService,
 	store: RecruiterAIStore,
 	platform: Any | None,
 	records: list[dict[str, Any]],
