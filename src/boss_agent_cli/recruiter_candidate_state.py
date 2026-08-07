@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from threading import RLock
 from typing import Any, Callable
 
 import boss_agent_cli.recruiter_ai_store as store_module
 from boss_agent_cli.recruiter_ai_models import CANDIDATE_STATUSES
 
 _INSTALLED = False
+_STATE_LOCK = RLock()
 
 
 def canonical_candidate_key(record: dict[str, Any]) -> str:
@@ -44,46 +46,51 @@ def install_candidate_state_retention() -> None:
 
 	def set_status(self: Any, record_id: str, status: str, *, note: str = "") -> dict[str, Any]:
 		"""Apply an explicit recruiter state change to every version of the logical candidate."""
-		target = original_set_status(self, record_id, status, note=note)
-		job_key = str(target.get("job_key") or "")
-		candidate_key = canonical_candidate_key(target)
-		if not job_key or not candidate_key:
+		with _STATE_LOCK:
+			target = original_set_status(self, record_id, status, note=note)
+			job_key = str(target.get("job_key") or "")
+			candidate_key = canonical_candidate_key(target)
+			if not job_key or not candidate_key:
+				return target
+			for record in self.list_evaluations(job_key=job_key):
+				other_id = str(record.get("id") or "")
+				if not other_id or other_id == record_id:
+					continue
+				if canonical_candidate_key(record) != candidate_key:
+					continue
+				original_set_status(self, other_id, status, note=note)
 			return target
-		for record in self.list_evaluations(job_key=job_key):
-			other_id = str(record.get("id") or "")
-			if not other_id or other_id == record_id:
-				continue
-			if canonical_candidate_key(record) != candidate_key:
-				continue
-			original_set_status(self, other_id, status, note=note)
-		return target
 
 	def save_evaluation(self: Any, **kwargs: Any) -> dict[str, Any]:
-		job_key = str(kwargs.get("job_key") or "")
-		resume = kwargs.get("resume")
-		source = kwargs.get("source")
-		previous: dict[str, Any] | None = None
-		if job_key and isinstance(resume, dict):
-			try:
-				key = store_module.candidate_key(resume, source if isinstance(source, dict) else None)
-				previous = self.latest_by_candidate(job_key=job_key).get(key)
-			except (TypeError, ValueError):
-				previous = None
+		# Serialize the lookup/save/inherit sequence with explicit recruiter state updates. Without
+		# this lock a ThreadingHTTPServer request could mark the candidate between the lookup and the
+		# new version write, leaving that new version with stale recruiter-owned state.
+		with _STATE_LOCK:
+			job_key = str(kwargs.get("job_key") or "")
+			resume = kwargs.get("resume")
+			source = kwargs.get("source")
+			previous: dict[str, Any] | None = None
+			if job_key and isinstance(resume, dict):
+				try:
+					key = store_module.candidate_key(resume, source if isinstance(source, dict) else None)
+					previous = self.latest_by_candidate(job_key=job_key).get(key)
+				except (TypeError, ValueError):
+					previous = None
 
-		record = original_save(self, **kwargs)
-		if not isinstance(previous, dict):
-			return record
-		status = str(previous.get("status") or "new")
-		if status not in CANDIDATE_STATUSES:
-			return record
-		note = str(previous.get("status_note") or "")
-		# Recruiter notes are candidate-level state too. A note entered while the candidate is still
-		# in the default `new` stage must not disappear just because a new AI evaluation version is saved.
-		if status == "new" and not note:
-			return record
-		# This is inheritance, not a new human decision. Only the new version needs updating: calling
-		# the candidate-wide wrapper here would rescan all historical versions for every re-evaluation.
-		return original_set_status(self, str(record.get("id") or ""), status, note=note)
+			record = original_save(self, **kwargs)
+			if not isinstance(previous, dict):
+				return record
+			status = str(previous.get("status") or "new")
+			if status not in CANDIDATE_STATUSES:
+				return record
+			note = str(previous.get("status_note") or "")
+			# Recruiter notes are candidate-level state too. A note entered while the candidate is still
+			# in the default `new` stage must not disappear just because a new AI evaluation version is saved.
+			if status == "new" and not note:
+				return record
+			# This is inheritance, not a new human decision. Only the new version needs updating: calling
+			# the candidate-wide wrapper here would rescan all historical versions for every re-evaluation.
+			return original_set_status(self, str(record.get("id") or ""), status, note=note)
 
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
 	setattr(store_cls, "set_status", set_status)
