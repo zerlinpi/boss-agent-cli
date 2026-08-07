@@ -1,0 +1,10 @@
+.button.danger-subtle {
+	background: var(--danger-soft);
+	color: var(--danger);
+	border: 1px solid #efcaca;
+}
+.button.danger-subtle:hover { background: #f9dede; border-color: #dfabab; }
+.danger-zone { display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+.danger-zone h3, .danger-zone p { margin: 0; }
+.danger-zone p { margin-top: 5px; color: var(--text-soft); font-size: 12px; }
+@media (max-width: 560px) { .danger-zone { align-items: stretch; flex-direction: column; } }
