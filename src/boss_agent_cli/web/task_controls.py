@@ -47,6 +47,23 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		event = self._boss_cancel_events.get(task_id)
 		return bool(event and event.is_set())
 
+	def finish_cancel(self: Any, task_id: str, *, message: str = "任务已取消") -> dict[str, Any] | None:
+		with self._lock:
+			task = self._tasks.get(task_id)
+			if task is None:
+				return None
+			if task.get("status") == "completed":
+				return deepcopy(task)
+			task.update({
+				"status": "failed",
+				"message": message,
+				"error": {"code": "TASK_CANCELLED", "message": message},
+				"result": None,
+				"updated_at": tasks_module._now(),
+			})
+			self._persist(task)
+			return deepcopy(task)
+
 	def submit(
 		self: Any,
 		kind: str,
@@ -94,21 +111,29 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 			event = self._boss_cancel_events.setdefault(task_id, Event())
 			event.set()
 			future = self._boss_futures.get(task_id)
-			if future is not None:
-				future.cancel()
-			task.update({
-				"status": "failed",
-				"message": "任务已取消",
-				"error": {"code": "TASK_CANCELLED", "message": "任务已取消"},
-				"updated_at": tasks_module._now(),
-			})
+			cancelled_before_start = bool(future is not None and future.cancel())
+			if cancelled_before_start:
+				task.update({
+					"status": "failed",
+					"message": "任务已取消",
+					"error": {"code": "TASK_CANCELLED", "message": "任务已取消"},
+					"result": None,
+					"updated_at": tasks_module._now(),
+				})
+			else:
+				task.update({
+					"status": "cancelling",
+					"message": "正在取消任务，等待当前操作返回",
+					"error": {"code": "TASK_CANCEL_REQUESTED", "message": "取消请求已提交"},
+					"updated_at": tasks_module._now(),
+				})
 			self._persist(task)
 			return deepcopy(task)
 
 	def run(self: Any, task_id: str, function: Callable[..., dict[str, Any]]) -> None:
 		ensure_state(self)
 		if cancellation_requested(self, task_id):
-			cancel(self, task_id)
+			finish_cancel(self, task_id)
 			return
 		self._update(task_id, status="running", progress=1, message="正在执行")
 
@@ -120,11 +145,11 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		try:
 			result = function(progress)
 		except TaskCancelledError:
-			cancel(self, task_id)
+			finish_cancel(self, task_id)
 			return
 		except Exception as exc:
 			if cancellation_requested(self, task_id):
-				cancel(self, task_id)
+				finish_cancel(self, task_id)
 				return
 			code = getattr(exc, "code", exc.__class__.__name__)
 			self._update(
@@ -135,7 +160,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 			)
 			return
 		if cancellation_requested(self, task_id):
-			cancel(self, task_id)
+			finish_cancel(self, task_id)
 			return
 		self._update(
 			task_id,
@@ -144,6 +169,21 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 			message="执行完成",
 			result=result,
 		)
+
+	def has_active_screening(self: Any, job_key: str | None = None) -> bool:
+		ensure_state(self)
+		with self._lock:
+			for task in self._tasks.values():
+				if task.get("status") not in {"queued", "running", "cancelling"}:
+					continue
+				if task.get("kind") not in {"screen-local", "screen-boss"}:
+					continue
+				metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+				result = task.get("result") if isinstance(task.get("result"), dict) else {}
+				task_job_key = str(metadata.get("job_key") or result.get("job_key") or "")
+				if job_key is None or not task_job_key or task_job_key == job_key:
+					return True
+		return False
 
 	def prune_locked(self: Any) -> None:
 		ensure_state(self)
@@ -169,7 +209,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		with self._lock:
 			self._boss_closed = True
 			for task_id, task in self._tasks.items():
-				if task.get("status") not in {"queued", "running"}:
+				if task.get("status") not in {"queued", "running", "cancelling"}:
 					continue
 				event = self._boss_cancel_events.setdefault(task_id, Event())
 				event.set()
@@ -180,6 +220,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 					"status": "failed",
 					"message": "服务关闭，任务已取消",
 					"error": {"code": "TASK_CANCELLED", "message": "服务关闭，任务已取消"},
+					"result": None,
 					"updated_at": tasks_module._now(),
 				})
 				self._persist(task)
@@ -190,6 +231,7 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 	setattr(manager_cls, "submit", submit)
 	setattr(manager_cls, "_run", run)
 	setattr(manager_cls, "cancel", cancel)
+	setattr(manager_cls, "has_active_screening", has_active_screening)
 	setattr(manager_cls, "_prune_locked", prune_locked)
 	setattr(manager_cls, "delete_for_job", delete_for_job)
 	setattr(manager_cls, "close", close)
