@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import statistics
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -18,6 +19,7 @@ _INSTALLED = False
 _ALLOWED_REPLY_INTENTS = {
 	"auto", "acknowledge", "ask_followup", "invite_interview", "clarify", "decline_draft",
 }
+_SCREEN_SEEN: ContextVar[set[str] | None] = ContextVar("boss_recruiter_screen_seen", default=None)
 
 
 class _LazyAIService:
@@ -78,6 +80,34 @@ def _normalize_record_source(record: dict[str, Any]) -> dict[str, Any]:
 	return record
 
 
+def _candidate_identity_key(ref: dict[str, Any]) -> str | None:
+	"""Build a stable per-screening identity without relying on candidate display names."""
+	for field in ("geek_id", "security_id", "friend_id"):
+		value = ref.get(field)
+		if value not in (None, ""):
+			return f"{field}:{value}"
+	return None
+
+
+def _dedupe_candidate_items(
+	items: list[dict[str, Any]],
+	seen: set[str],
+	ref_parser: Callable[..., dict[str, Any]],
+) -> list[dict[str, Any]]:
+	result: list[dict[str, Any]] = []
+	for item in items:
+		try:
+			key = _candidate_identity_key(ref_parser(item))
+		except (TypeError, ValueError, KeyError):
+			key = None
+		if key is not None:
+			if key in seen:
+				continue
+			seen.add(key)
+		result.append(item)
+	return result
+
+
 def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int, label: str) -> int:
 	if value in (None, ""):
 		return default
@@ -121,6 +151,7 @@ def install_controller_reliability() -> None:
 	store_cls = controller_module.RecruiterAIStore
 	original_service = controller_cls._service
 	original_extract_candidate_ref = controller_module.extract_candidate_ref
+	original_candidate_items = controller_module.candidate_items
 	original_screen_local = controller_cls.screen_local
 	original_screen_boss = controller_cls.screen_boss
 	original_generate_reply = controller_cls.generate_reply
@@ -134,6 +165,13 @@ def install_controller_reliability() -> None:
 		ref = original_extract_candidate_ref(item, default_job_id=default_job_id)
 		ref["friend_id"] = _normalize_friend_id(ref.get("friend_id"))
 		return ref
+
+	def candidate_items(payload: Any) -> list[dict[str, Any]]:
+		items = original_candidate_items(payload)
+		seen = _SCREEN_SEEN.get()
+		if seen is None:
+			return items
+		return _dedupe_candidate_items(items, seen, original_extract_candidate_ref)
 
 	def rank(self: Any, *, job_key: str, top: int) -> list[dict[str, Any]]:
 		return [_normalize_record_source(record) for record in original_rank(self, job_key=job_key, top=top)]
@@ -155,7 +193,11 @@ def install_controller_reliability() -> None:
 		)
 		clean["force"] = _boolean(clean.get("force"), label="force")
 		clean["include_chat"] = _boolean(clean.get("include_chat"), label="include_chat")
-		return original_screen_boss(self, clean, progress=progress)
+		token = _SCREEN_SEEN.set(set())
+		try:
+			return original_screen_boss(self, clean, progress=progress)
+		finally:
+			_SCREEN_SEEN.reset(token)
 
 	def generate_reply(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
 		clean = dict(payload)
@@ -242,6 +284,7 @@ def install_controller_reliability() -> None:
 	setattr(controller_cls, "analytics", analytics)
 	setattr(controller_cls, "replies", replies)
 	setattr(controller_module, "extract_candidate_ref", extract_candidate_ref)
+	setattr(controller_module, "candidate_items", candidate_items)
 
 
 def install_server_reliability(server_module: Any) -> None:
