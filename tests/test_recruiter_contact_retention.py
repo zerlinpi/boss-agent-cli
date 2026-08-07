@@ -10,7 +10,7 @@ from boss_agent_cli.recruiter_ai import (
 )
 
 
-def test_local_resume_keeps_operational_contacts_but_drops_structured_protected_fields():
+def test_local_resume_keeps_recruiter_useful_fields_and_contacts_but_drops_identity_numbers():
 	resume = normalize_resume({
 		"basic": {"name": "张三", "age": "31", "gender": "男", "marital_status": "已婚"},
 		"contact": {
@@ -23,7 +23,7 @@ def test_local_resume_keeps_operational_contacts_but_drops_structured_protected_
 		"raw_text": "张三，婚姻状况：已婚，年龄：31，电话 13800000000，微信：zhang_wechat，身份证 110101199001011234",
 	})
 
-	assert resume["basic"] == {"name": "张三"}
+	assert resume["basic"] == {"name": "张三", "age": "31", "gender": "男", "marital_status": "已婚"}
 	assert resume["contact"]["phone"] == "13800000000"
 	assert resume["contact"]["email"] == "zhang@example.com"
 	assert "id_number" not in resume["contact"]
@@ -67,6 +67,33 @@ def test_model_payload_sanitizes_compact_resume_demographics():
 	assert "[性别已隔离]" in payload
 	assert "[婚姻状况已隔离]" in payload
 	assert "5年 Java 经验" in payload
+
+
+def test_model_payload_handles_camel_case_chinese_aliases_and_landline():
+	resume = normalize_resume({
+		"candidateName": "王五",
+		"maritalStatus": "已婚",
+		"birthDate": "1992-05-06",
+		"sex": "男",
+		"healthStatus": "良好",
+		"phoneNumber": "010-12345678",
+		"联系方式": {"微信": "wangwu_2026", "邮箱": "wangwu@example.com"},
+		"raw_text": "健康状况：良好；宗教：无；电话 010-12345678；5年 Python 经验",
+	})
+
+	# Human-facing local data remains available except high-risk identity/address fields.
+	assert resume["maritalStatus"] == "已婚"
+	assert resume["phoneNumber"] == "010-12345678"
+	contacts = extract_contact_details(resume)
+	assert "010-12345678" in contacts["phone"]
+	assert "wangwu_2026" in contacts["wechat"]
+
+	payload = json.dumps(redact_resume_for_model(resume), ensure_ascii=False)
+	for secret in (
+		"王五", "已婚", "1992-05-06", "良好", "010-12345678", "wangwu_2026", "wangwu@example.com",
+	):
+		assert secret not in payload
+	assert "5年 Python 经验" in payload
 
 
 def test_reply_model_context_is_sanitized_but_store_keeps_local_conversation(tmp_path):
