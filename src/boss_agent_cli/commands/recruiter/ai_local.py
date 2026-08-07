@@ -15,6 +15,7 @@ from boss_agent_cli.commands.recruiter.ai_common import (
 	emit_input_error,
 	evaluate_local,
 	load_rubric,
+	ranked_records_for_run,
 	resolve_job,
 	service_for,
 )
@@ -177,13 +178,13 @@ def screen_cmd(
 		except (RecruiterAIError, AIServiceError) as exc:
 			failed.append({"file": str(path), "error": str(exc)})
 
-	# Auto-drafts belong to this screening run, not the historical leaderboard. Pull the full
-	# bounded ranking only when necessary so newly evaluated candidates cannot be hidden behind
-	# higher-scoring historical records before the current-run filter is applied.
-	rank_limit = 10_000 if draft_top and processed else top
-	ranked_records = store.rank(job_key=job_key, top=rank_limit)
-	processed_ids = set(processed)
-	draft_records = [record for record in ranked_records if str(record.get("id") or "") in processed_ids]
+	ranked_records, draft_records = ranked_records_for_run(
+		store,
+		job_key=job_key,
+		top=top,
+		draft_top=draft_top,
+		processed_ids=processed,
+	)
 	drafts: list[dict[str, Any]] = []
 	draft_failed: list[dict[str, str]] = []
 	if draft_top and draft_records:
