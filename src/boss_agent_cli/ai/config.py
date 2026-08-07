@@ -37,6 +37,37 @@ _DEFAULT_CONFIG: dict[str, Any] = {
 	"ai_temperature": 0.7,
 	"ai_max_tokens": 4096,
 }
+_CONFIG_KEYS = frozenset(_DEFAULT_CONFIG)
+
+
+def _chmod_private(path: Path) -> None:
+	"""Best-effort owner-only permissions on POSIX; harmless on platforms without full chmod semantics."""
+	try:
+		path.chmod(0o600)
+	except OSError:
+		pass
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+	"""Replace a sensitive config file atomically and apply owner-only permissions."""
+	temporary = path.with_name(f".{path.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
+	fd: int | None = None
+	try:
+		fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+		with os.fdopen(fd, "wb") as handle:
+			fd = None
+			handle.write(data)
+			handle.flush()
+			os.fsync(handle.fileno())
+		os.replace(temporary, path)
+		_chmod_private(path)
+	finally:
+		if fd is not None:
+			os.close(fd)
+		try:
+			temporary.unlink()
+		except FileNotFoundError:
+			pass
 
 
 class AIConfigStore:
@@ -49,6 +80,7 @@ class AIConfigStore:
 		self._key_path = self._ai_dir / "api_key.enc"
 		self._config_path = self._ai_dir / "config.json"
 		self._auth_dir = data_dir / "auth"
+		self._derived_key_cache: bytes | None = None
 
 	def _get_machine_id(self) -> str:
 		"""Get a stable machine identifier for key derivation."""
@@ -62,17 +94,43 @@ class AIConfigStore:
 		return hashlib.sha256(fingerprint.encode()).hexdigest()
 
 	def _get_salt(self) -> bytes:
-		"""Reuse auth salt file, or create one if it doesn't exist."""
+		"""Reuse auth salt file, or create one with owner-only permissions."""
 		self._auth_dir.mkdir(parents=True, exist_ok=True)
 		salt_path = self._auth_dir / "salt"
 		if salt_path.exists():
-			return salt_path.read_bytes()
+			try:
+				salt = salt_path.read_bytes()
+			except OSError:
+				salt = b""
+			if len(salt) >= 16:
+				_chmod_private(salt_path)
+				return salt
+			# A corrupt/empty salt cannot decrypt the old key anyway. Reset both consistently.
+			try:
+				self._key_path.unlink()
+			except FileNotFoundError:
+				pass
+			salt = os.urandom(16)
+			_atomic_write(salt_path, salt)
+			self._derived_key_cache = None
+			return salt
+
 		salt = os.urandom(16)
-		salt_path.write_bytes(salt)
+		try:
+			fd = os.open(salt_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+		except FileExistsError:
+			return self._get_salt()
+		with os.fdopen(fd, "wb") as handle:
+			handle.write(salt)
+			handle.flush()
+			os.fsync(handle.fileno())
+		_chmod_private(salt_path)
 		return salt
 
 	def _derive_key(self) -> bytes:
-		"""Derive a Fernet key from machine ID and salt."""
+		"""Derive and cache a Fernet key from machine ID and salt."""
+		if self._derived_key_cache is not None:
+			return self._derived_key_cache
 		salt = self._get_salt()
 		machine_id = self._get_machine_id()
 		kdf = PBKDF2HMAC(
@@ -81,44 +139,50 @@ class AIConfigStore:
 			salt=salt,
 			iterations=480000,
 		)
-		key = kdf.derive(machine_id.encode())
-		return urlsafe_b64encode(key)
+		key = urlsafe_b64encode(kdf.derive(machine_id.encode()))
+		self._derived_key_cache = key
+		return key
 
 	def save_api_key(self, key: str) -> None:
-		"""Encrypt and persist the API key."""
+		"""Encrypt and persist the API key atomically."""
 		fernet = Fernet(self._derive_key())
 		encrypted = fernet.encrypt(key.encode("utf-8"))
-		self._key_path.write_bytes(encrypted)
+		_atomic_write(self._key_path, encrypted)
 
 	def get_api_key(self) -> str | None:
-		"""Load and decrypt the API key. Returns None if not set or decryption fails."""
+		"""Load and decrypt the API key. Returns None if not set, unreadable, or invalid."""
 		if not self._key_path.exists():
 			return None
-		fernet = Fernet(self._derive_key())
 		try:
+			fernet = Fernet(self._derive_key())
 			plaintext = fernet.decrypt(self._key_path.read_bytes())
-		except (InvalidToken, ValueError):
+			return plaintext.decode("utf-8")
+		except (InvalidToken, ValueError, OSError, UnicodeDecodeError):
 			return None
-		return plaintext.decode("utf-8")
 
 	def save_config(self, **kwargs: Any) -> None:
-		"""Save configuration, merging with existing values."""
+		"""Save known configuration fields, merging with existing values."""
+		unknown = set(kwargs) - _CONFIG_KEYS
+		if unknown:
+			raise ValueError(f"unknown AI config fields: {', '.join(sorted(unknown))}")
 		current = self.load_config()
 		current.update(kwargs)
-		self._config_path.write_text(
-			json.dumps(current, ensure_ascii=False, indent=2),
-			encoding="utf-8",
+		_atomic_write(
+			self._config_path,
+			json.dumps(current, ensure_ascii=False, indent=2).encode("utf-8"),
 		)
 
 	def load_config(self) -> dict[str, Any]:
-		"""Load configuration with defaults for missing keys."""
+		"""Load configuration with defaults for missing or malformed content."""
 		config = dict(_DEFAULT_CONFIG)
 		if self._config_path.exists():
 			try:
 				saved = json.loads(self._config_path.read_text(encoding="utf-8"))
-				config.update(saved)
-			except (json.JSONDecodeError, OSError):
-				pass
+			except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+				saved = None
+			if isinstance(saved, dict):
+				config.update({key: value for key, value in saved.items() if key in _CONFIG_KEYS})
+				_chmod_private(self._config_path)
 		return config
 
 	def get_base_url(self) -> str | None:
