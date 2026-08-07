@@ -49,6 +49,10 @@ if (-not $BasePython) {
     if (-not $BasePython) { throw 'Python was installed, but the current session cannot locate it. Reopen start-recruiter-web.bat.' }
 }
 
+if ((Test-Path $Venv) -and (-not (Test-Python $VenvPython))) {
+    Write-Host '[1/3] Existing .venv is invalid or too old; rebuilding it...' -ForegroundColor Yellow
+    Remove-Item -Recurse -Force $Venv
+}
 if (-not (Test-Path $VenvPython)) {
     Write-Host '[1/3] Creating isolated Python environment...' -ForegroundColor Cyan
     & $BasePython -m venv $Venv
@@ -60,7 +64,7 @@ foreach ($fileName in @('pyproject.toml','uv.lock')) {
     $filePath = Join-Path $Root $fileName
     if (Test-Path $filePath) { $hashInput += (Get-FileHash $filePath -Algorithm SHA256).Hash }
 }
-$hashInput += 'recruiter-web-bootstrap-v4'
+$hashInput += 'recruiter-web-bootstrap-v5'
 $bytes = [System.Text.Encoding]::UTF8.GetBytes(($hashInput -join '|'))
 $sha = [System.Security.Cryptography.SHA256]::Create()
 try { $Fingerprint = ([System.BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','') } finally { $sha.Dispose() }
