@@ -39,6 +39,22 @@ def test_controller_lifecycle_deletes_candidate_and_job(tmp_path):
 	assert controller.list_jobs() == []
 
 
+def test_uploaded_resume_keeps_stable_candidate_key_across_revisions(tmp_path):
+	controller = RecruiterWebController(tmp_path)
+	rubric = normalize_rubric()
+	first = controller.store.save_evaluation(
+		job_key="java", jd_text="JD", resume={"name": "Alice", "raw_text": "Java"},
+		evaluation=_evaluation(rubric), source={"type": "web-upload", "filename": "alice.pdf"}, rubric=rubric,
+	)
+	second = controller.store.save_evaluation(
+		job_key="java", jd_text="JD", resume={"name": "Alice", "raw_text": "Java Spring"},
+		evaluation=_evaluation(rubric), source={"type": "web-upload", "filename": "alice.pdf"}, rubric=rubric,
+	)
+
+	assert first["candidate_key"] == second["candidate_key"]
+	assert len(controller.store.latest_by_candidate(job_key="java")) == 1
+
+
 def test_lifecycle_assets_are_appended(tmp_path):
 	application = RecruiterWebApplication(RecruiterWebController(tmp_path), token="fixed")
 	try:
