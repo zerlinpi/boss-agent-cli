@@ -18,9 +18,42 @@ function Resolve-Docker {
     return $null
 }
 
+function Test-PortOpen([int]$PortNumber) {
+    $client = $null
+    try {
+        $client = [System.Net.Sockets.TcpClient]::new()
+        $task = $client.ConnectAsync('127.0.0.1', $PortNumber)
+        if (-not $task.Wait(600)) { return $false }
+        return $client.Connected
+    } catch {
+        return $false
+    } finally {
+        if ($client) { $client.Dispose() }
+    }
+}
+
+function Test-RecruiterWorkspace([string]$Address) {
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $Address -TimeoutSec 2
+        return $response.StatusCode -eq 200 -and $response.Content -match 'BOSS Recruit AI'
+    } catch {
+        return $false
+    }
+}
+
 Write-Host ''
 Write-Host '=== BOSS Recruit AI - Docker One Click ===' -ForegroundColor Cyan
 Write-Host "Web address: $Url" -ForegroundColor DarkGray
+
+if (Test-RecruiterWorkspace $Url) {
+    Write-Host "Recruiter workspace is already running: $Url" -ForegroundColor Green
+    Start-Process $Url
+    exit 0
+}
+if (Test-PortOpen $ParsedPort) {
+    throw "Host port $Port is already in use by another application. Set BOSS_WEB_PORT to a free port and retry."
+}
+
 $Docker = Resolve-Docker
 if (-not $Docker) {
     Write-Host 'Docker Desktop was not found. Trying winget installation...' -ForegroundColor Yellow
@@ -52,15 +85,12 @@ if ($LASTEXITCODE -ne 0) {
 Set-Location $Root
 Write-Host '[1/2] Building and starting container...' -ForegroundColor Cyan
 & $Docker compose -f $ComposeFile up -d --build
-if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed. Check whether the selected host port is already in use.' }
+if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed. Check the Docker output above for the exact cause.' }
 
 Write-Host '[2/2] Waiting for Web workspace...' -ForegroundColor Cyan
 $healthy = $false
 for ($i = 0; $i -lt 60; $i++) {
-    try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 2
-        if ($response.StatusCode -eq 200) { $healthy = $true; break }
-    } catch {}
+    if (Test-RecruiterWorkspace $Url) { $healthy = $true; break }
     Start-Sleep -Seconds 2
 }
 if (-not $healthy) {
