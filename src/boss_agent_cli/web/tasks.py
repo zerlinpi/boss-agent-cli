@@ -114,7 +114,12 @@ class TaskManager:
 	@staticmethod
 	def _row_to_task(row: sqlite3.Row) -> dict[str, Any]:
 		def decode(value: str | None) -> Any:
-			return json.loads(value) if value else None
+			if not value:
+				return None
+			try:
+				return json.loads(value)
+			except (TypeError, json.JSONDecodeError):
+				return None
 		return {
 			"id": row["id"],
 			"kind": row["kind"],
@@ -156,7 +161,7 @@ class TaskManager:
 				),
 			)
 			self._db.commit()
-		except sqlite3.Error:
+		except (sqlite3.Error, TypeError, ValueError):
 			return
 
 	def submit(
@@ -226,13 +231,17 @@ class TaskManager:
 			return deepcopy(task) if task else None
 
 	def recent(self, *, limit: int = 20) -> list[dict[str, Any]]:
+		try:
+			bounded_limit = max(1, min(int(limit), 200))
+		except (TypeError, ValueError):
+			bounded_limit = 20
 		with self._lock:
 			items = sorted(
 				self._tasks.values(),
 				key=lambda item: str(item.get("created_at", "")),
 				reverse=True,
 			)
-			return deepcopy(items[: max(1, min(limit, 200))])
+			return deepcopy(items[:bounded_limit])
 
 	def has_active_screening(self, job_key: str | None = None) -> bool:
 		"""Return whether a matching screening task is queued or running."""
@@ -299,9 +308,15 @@ class TaskManager:
 			task_id = str(item["id"])
 			self._tasks.pop(task_id, None)
 			if self._db is not None:
-				self._db.execute("DELETE FROM web_tasks WHERE id = ?", (task_id,))
+				try:
+					self._db.execute("DELETE FROM web_tasks WHERE id = ?", (task_id,))
+				except sqlite3.Error:
+					pass
 		if self._db is not None:
-			self._db.commit()
+			try:
+				self._db.commit()
+			except sqlite3.Error:
+				pass
 
 	def close(self) -> None:
 		self._executor.shutdown(wait=False, cancel_futures=True)
