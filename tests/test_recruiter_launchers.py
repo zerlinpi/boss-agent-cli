@@ -38,5 +38,23 @@ def test_recruiter_dockerfile_uses_web_entrypoint_and_healthcheck():
 def test_windows_launchers_delegate_to_bootstrap_scripts():
     native = (ROOT / "start-recruiter-web.bat").read_text(encoding="utf-8")
     docker = (ROOT / "start-recruiter-docker.bat").read_text(encoding="utf-8")
+    stop_docker = (ROOT / "stop-recruiter-docker.bat").read_text(encoding="utf-8")
     assert "scripts\\start-recruiter-web.ps1" in native
     assert "scripts\\start-recruiter-docker.ps1" in docker
+    assert "scripts\\stop-recruiter-docker.ps1" in stop_docker
+
+
+def test_windows_native_bootstrap_installs_browser_kernel_and_supported_python_versions():
+    script = (ROOT / "scripts" / "start-recruiter-web.ps1").read_text(encoding="utf-8")
+    assert "patchright.exe" in script
+    assert "install chromium" in script
+    for version in ("-3.14", "-3.13", "-3.12", "-3.11", "-3.10"):
+        assert version in script
+
+
+def test_windows_docker_bootstrap_validates_host_port():
+    script = (ROOT / "scripts" / "start-recruiter-docker.ps1").read_text(encoding="utf-8")
+    assert "[int]::TryParse" in script
+    assert "$ParsedPort -lt 1" in script
+    assert "$ParsedPort -gt 65535" in script
+    assert "$env:BOSS_WEB_PORT = $Port" in script
