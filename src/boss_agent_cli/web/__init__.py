@@ -6,6 +6,7 @@ from boss_agent_cli.web.boss_draft_scope import install_boss_draft_scope
 from boss_agent_cli.web.contact_extension import install_contact_assets
 from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleError
 from boss_agent_cli.web.export_security import install_export_security
+from boss_agent_cli.web.job_analysis_safety import install_job_analysis_safety
 from boss_agent_cli.web.lifecycle import install_controller_extensions, install_server_extensions
 from boss_agent_cli.web.reliability import install_controller_reliability, install_server_reliability
 from boss_agent_cli.web.reply_extension import install_reply_assets
@@ -17,6 +18,7 @@ from boss_agent_cli.web.upload_policy import install_upload_policy
 install_export_security(_controller)
 install_controller_extensions()
 install_controller_reliability()
+install_job_analysis_safety()
 install_screening_cache()
 install_upload_policy()
 install_boss_draft_scope()
