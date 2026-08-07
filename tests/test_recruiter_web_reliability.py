@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from boss_agent_cli.recruiter_ai import normalize_rubric
 from boss_agent_cli.web import RecruiterWebController, WebConsoleError, build_server
 from boss_agent_cli.web import controller as controller_module
+from boss_agent_cli.web.server import RecruiterWebApplication
 
 
 def _job(controller: RecruiterWebController, job_key: str = "python") -> dict:
@@ -16,6 +18,16 @@ def _job(controller: RecruiterWebController, job_key: str = "python") -> dict:
 		"title": "Python 后端",
 		"jd_text": "负责 Python、FastAPI 和 PostgreSQL 服务开发，要求具备生产项目经验。",
 	})
+
+
+def _wait_task(application: RecruiterWebApplication, task_id: str) -> dict:
+	deadline = time.time() + 2
+	while time.time() < deadline:
+		task = application.tasks.get(task_id)
+		if task and task["status"] in {"completed", "failed"}:
+			return task
+		time.sleep(0.01)
+	raise AssertionError(f"task did not finish: {task_id}")
 
 
 def test_all_unchanged_local_screen_does_not_require_ai_configuration(tmp_path):
@@ -89,6 +101,21 @@ def test_malformed_friend_id_is_ignored_instead_of_crashing_chat_batch():
 	assert valid["friend_id"] == 123
 
 
+def test_legacy_stored_friend_id_is_normalized_on_rank_and_detail(tmp_path):
+	controller = RecruiterWebController(tmp_path)
+	job = _job(controller)
+	record = controller.store.save_evaluation(
+		job_key="python",
+		jd_text=job["jd_text"],
+		resume={"name": "Alice"},
+		evaluation={"total_score": 80, "recommendation": "interview", "confidence": 0.8},
+		source={"type": "zhipin", "candidate_id": "alice", "friend_id": "bad-legacy-id"},
+		rubric=normalize_rubric(job["rubric"]),
+	)
+	assert controller.store.rank(job_key="python", top=1)[0]["source"]["friend_id"] is None
+	assert controller.candidate_detail(record["id"])["source"]["friend_id"] is None
+
+
 def test_screen_boss_rejects_invalid_numeric_and_boolean_inputs_before_platform_access(tmp_path):
 	controller = RecruiterWebController(tmp_path)
 	_job(controller)
@@ -99,6 +126,48 @@ def test_screen_boss_rejects_invalid_numeric_and_boolean_inputs_before_platform_
 		with pytest.raises(WebConsoleError) as caught:
 			controller.screen_boss(payload)
 		assert caught.value.code == "INVALID_PARAM"
+
+
+def test_login_post_normalizes_string_boolean_before_task_submission(tmp_path):
+	controller = RecruiterWebController(tmp_path)
+	captured = {}
+
+	def fake_login(*, timeout=180, cookie_source=None, force_cdp=False, progress=None):
+		captured.update({"timeout": timeout, "cookie_source": cookie_source, "force_cdp": force_cdp})
+		return dict(captured)
+
+	controller.login = fake_login  # type: ignore[method-assign]
+	application = RecruiterWebApplication(controller, token="fixed")
+	try:
+		task = application.post("/api/auth/login", {
+			"timeout": "45",
+			"cookie_source": "chrome",
+			"force_cdp": "false",
+		})
+		completed = _wait_task(application, task["id"])
+		assert completed["status"] == "completed"
+		assert completed["result"]["timeout"] == 45
+		assert completed["result"]["force_cdp"] is False
+		assert captured["force_cdp"] is False
+	finally:
+		application.tasks.close()
+
+
+def test_login_post_rejects_invalid_inputs_before_creating_task(tmp_path):
+	application = RecruiterWebApplication(RecruiterWebController(tmp_path), token="fixed")
+	try:
+		for payload in (
+			{"timeout": "later"},
+			{"timeout": 10},
+			{"force_cdp": "maybe"},
+			{"cookie_source": ["chrome"]},
+		):
+			with pytest.raises(WebConsoleError) as caught:
+				application.post("/api/auth/login", payload)
+			assert caught.value.code == "INVALID_PARAM"
+		assert application.tasks.recent(limit=20) == []
+	finally:
+		application.tasks.close()
 
 
 def test_generate_reply_rejects_unknown_intent_and_oversized_conversation(tmp_path):
