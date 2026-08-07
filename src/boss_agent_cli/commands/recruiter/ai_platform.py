@@ -31,6 +31,14 @@ from boss_agent_cli.recruiter_ai import (
 )
 
 
+def _candidate_ref_key(ref: dict[str, Any]) -> str | None:
+	for field in ("geek_id", "security_id", "friend_id"):
+		value = ref.get(field)
+		if value not in (None, ""):
+			return f"{field}:{value}"
+	return None
+
+
 @click.command("evaluate-geek")
 @click.argument("geek_id")
 @click.option("--job-id", required=True, help="BOSS 职位 ID")
@@ -150,6 +158,7 @@ def screen_applications_cmd(
 	skipped: list[str] = []
 	failed: list[dict[str, str]] = []
 	refs: list[dict[str, Any]] = []
+	seen_refs: set[str] = set()
 	with get_recruiter_platform_instance(ctx, auth) as platform:
 		for page in range(1, pages + 1):
 			result = platform.friend_list(page=page, label_id=label_id, job_id=job_id)
@@ -160,7 +169,13 @@ def screen_applications_cmd(
 				)
 				return
 			for item in candidate_items(platform.unwrap_data(result) or {}):
-				refs.append(extract_candidate_ref(item, default_job_id=job_id))
+				ref = extract_candidate_ref(item, default_job_id=job_id)
+				key = _candidate_ref_key(ref)
+				if key is not None and key in seen_refs:
+					continue
+				if key is not None:
+					seen_refs.add(key)
+				refs.append(ref)
 				if len(refs) >= limit:
 					break
 			if len(refs) >= limit:
