@@ -105,6 +105,9 @@ The default low-risk `assisted` mode remains local, read-only first, and user-tr
 | Reply to candidate | `boss hr reply <friend_id> <message>` | Yes | Restricted (blocked by default) |
 | Request attached resume | `boss hr request-resume <friend_id>` | Yes | Restricted (blocked by default) |
 | Job listing and online/offline operations | `boss hr jobs` | Yes | httpx |
+| Recruiter AI workspace | `boss hr ai` | Depends on subcommand | Local + AI service; platform-reading subcommands such as `evaluate-geek` / `screen-applications` remain subject to authorization and operating-mode boundaries |
+
+`boss hr ai` covers job/rubric configuration, single and batch resume evaluation, guarded BOSS candidate evaluation, application screening, ranking, reports, human stage updates, and reply drafts. It does not automatically hire, reject, or send messages.
 
 Notes:
 - **Transport**: `httpx` means a direct API call. Assisted Mode stops on risk-control blocks. Research Mode may run explicitly declared browser/hook adapters, but not unbounded retries, and must preserve checkpoints and redaction. `AI service` means a third-party model API; do not send chat records, resumes, or contact details without authorization.
@@ -112,4 +115,4 @@ Notes:
 - Current platform coverage: `zhipin` has both candidate and recruiter implementations, but sensitive workflows are blocked by default; `zhilian` supports candidate-side workflows and recruiter automation through the `agent` browser/CDP adapter V1; `qiancheng` / 51job is a registered placeholder adapter whose real workflows return `NOT_SUPPORTED`.
 - Current auth posture: `zhipin` and `zhilian` keep user-triggered login compatibility; risk-control research belongs only in explicit Research Mode adapters and must not bypass platform risk controls.
 - `crawl` is a user-triggered sequential Research Mode task using an isolated Chrome profile, cross-process rate budget, SQLite checkpoints, and the `crawl stop` kill switch; MCP remains assisted-only and exposes only local `crawl_status/results/shortlist` operations for an existing run. The default Hook is `none`; users may select a Hook only when they have authorization to provide the original local files and `SHA256SUMS`. Candidate `agent crawl` consumes only completed runs by default; a new crawl requires `operating_mode=research` and `--allow-crawl`. Risk codes, a security page, or an exhausted budget stop it and return a resume command.
-- Use `boss schema` as the source of truth: it currently exposes 38 top-level commands, with 9 first-level recruiter subcommands under `hr`, while `ai` and `resume` remain command-group entries.
+- Use `boss schema` as the source of truth: it currently exposes 38 top-level commands. The upstream capability-matrix baseline records 9 first-level recruiter subcommands under `hr`; this fork adds `hr ai` as the 10th recruiter AI workspace entry. `ai` and `resume` remain command-group entries.
