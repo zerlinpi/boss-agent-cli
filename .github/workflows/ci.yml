@@ -189,4 +189,16 @@ jobs:
 
           curl --fail --silent --show-error http://127.0.0.1:18765/ >/tmp/recruiter-home.html
           grep -q 'BOSS' /tmp/recruiter-home.html
-          docker inspect "$container_id" --format '{{json .State.Health.Status}}'
+
+          for attempt in $(seq 1 20); do
+            health="$(docker inspect "$container_id" --format '{{.State.Health.Status}}')"
+            if [ "$health" = "healthy" ]; then
+              break
+            fi
+            if [ "$health" = "unhealthy" ]; then
+              docker logs "$container_id"
+              exit 1
+            fi
+            sleep 1
+          done
+          test "$(docker inspect "$container_id" --format '{{.State.Health.Status}}')" = "healthy"
