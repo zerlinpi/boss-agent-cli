@@ -12,6 +12,7 @@ import statistics
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from boss_agent_cli.web import controller as controller_module
 
@@ -20,6 +21,10 @@ _ALLOWED_REPLY_INTENTS = {
 	"auto", "acknowledge", "ask_followup", "invite_interview", "clarify", "decline_draft",
 }
 _SCREEN_SEEN: ContextVar[set[str] | None] = ContextVar("boss_recruiter_screen_seen", default=None)
+MAX_JD_CHARS = 100_000
+MAX_MODEL_NAME_CHARS = 256
+MAX_API_KEY_CHARS = 8_192
+MAX_BASE_URL_CHARS = 2_048
 
 
 class _LazyAIService:
@@ -124,6 +129,22 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int, label:
 	return parsed
 
 
+def _bounded_float(value: Any, *, default: float, minimum: float, maximum: float, label: str) -> float:
+	if value in (None, ""):
+		return default
+	if isinstance(value, bool):
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是数字")
+	try:
+		parsed = float(value)
+	except (TypeError, ValueError) as exc:
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是数字") from exc
+	if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+		raise controller_module.WebConsoleError(
+			"INVALID_PARAM", f"{label} 必须是 {minimum}-{maximum} 之间的有限数字"
+		)
+	return parsed
+
+
 def _boolean(value: Any, *, default: bool = False, label: str) -> bool:
 	if value is None:
 		return default
@@ -138,6 +159,27 @@ def _boolean(value: Any, *, default: bool = False, label: str) -> bool:
 		if normalized in {"false", "0", "no", "off", ""}:
 			return False
 	raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是布尔值")
+
+
+def _bounded_text(value: Any, *, maximum: int, label: str, allow_empty: bool = True) -> str:
+	text = str(value or "").strip()
+	if not allow_empty and not text:
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 不能为空")
+	if len(text) > maximum:
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 过长，最多 {maximum} 字符")
+	return text
+
+
+def _validated_base_url(value: Any) -> str | None:
+	text = _bounded_text(value, maximum=MAX_BASE_URL_CHARS, label="Base URL")
+	if not text:
+		return None
+	parsed = urlparse(text)
+	if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+		raise controller_module.WebConsoleError("INVALID_BASE_URL", "Base URL 必须是完整的 HTTP(S) 地址")
+	if parsed.username or parsed.password:
+		raise controller_module.WebConsoleError("INVALID_BASE_URL", "Base URL 不应包含用户名或密码")
+	return text
 
 
 def install_controller_reliability() -> None:
@@ -155,6 +197,9 @@ def install_controller_reliability() -> None:
 	original_screen_local = controller_cls.screen_local
 	original_screen_boss = controller_cls.screen_boss
 	original_generate_reply = controller_cls.generate_reply
+	original_configure_ai = controller_cls.configure_ai
+	original_save_job = controller_cls.save_job
+	original_analyze_job = controller_cls.analyze_job
 	original_rank = store_cls.rank
 	original_get_evaluation = store_cls.get_evaluation
 
@@ -178,6 +223,36 @@ def install_controller_reliability() -> None:
 
 	def get_evaluation(self: Any, record_id: str) -> dict[str, Any]:
 		return _normalize_record_source(original_get_evaluation(self, record_id))
+
+	def configure_ai(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+		clean = dict(payload)
+		clean["provider"] = _bounded_text(clean.get("provider"), maximum=64, label="provider", allow_empty=False)
+		clean["model"] = _bounded_text(
+			clean.get("model"), maximum=MAX_MODEL_NAME_CHARS, label="模型名称", allow_empty=False
+		)
+		clean["base_url"] = _validated_base_url(clean.get("base_url"))
+		clean["api_key"] = _bounded_text(clean.get("api_key"), maximum=MAX_API_KEY_CHARS, label="API Key")
+		clean["temperature"] = _bounded_float(
+			clean.get("temperature"), default=0.2, minimum=0.0, maximum=2.0, label="temperature"
+		)
+		clean["max_tokens"] = _bounded_int(
+			clean.get("max_tokens"), default=4096, minimum=256, maximum=32768, label="max_tokens"
+		)
+		return original_configure_ai(self, clean)
+
+	def save_job(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+		if payload.get("_delete"):
+			return original_save_job(self, payload)
+		clean = dict(payload)
+		clean["jd_text"] = _bounded_text(clean.get("jd_text"), maximum=MAX_JD_CHARS, label="JD", allow_empty=False)
+		clean["title"] = _bounded_text(clean.get("title"), maximum=200, label="岗位名称")
+		clean["boss_job_id"] = _bounded_text(clean.get("boss_job_id"), maximum=256, label="BOSS 职位 ID")
+		return original_save_job(self, clean)
+
+	def analyze_job(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
+		clean = dict(payload)
+		clean["jd_text"] = _bounded_text(clean.get("jd_text"), maximum=MAX_JD_CHARS, label="JD", allow_empty=False)
+		return original_analyze_job(self, clean, progress=progress)
 
 	def screen_local(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
 		clean = dict(payload)
@@ -278,6 +353,9 @@ def install_controller_reliability() -> None:
 	setattr(store_cls, "rank", rank)
 	setattr(store_cls, "get_evaluation", get_evaluation)
 	setattr(controller_cls, "_service", lazy_service)
+	setattr(controller_cls, "configure_ai", configure_ai)
+	setattr(controller_cls, "save_job", save_job)
+	setattr(controller_cls, "analyze_job", analyze_job)
 	setattr(controller_cls, "screen_local", screen_local)
 	setattr(controller_cls, "screen_boss", screen_boss)
 	setattr(controller_cls, "generate_reply", generate_reply)
