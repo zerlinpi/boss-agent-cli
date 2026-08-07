@@ -11,6 +11,7 @@ from boss_agent_cli.auth.manager import AuthManager
 from boss_agent_cli.compliance import require_compliance_allowed
 from boss_agent_cli.commands._recruiter_platform import get_recruiter_platform_instance
 from boss_agent_cli.commands.recruiter.ai_common import (
+	AIConfigurationError,
 	draft_for_records,
 	emit_ai_error,
 	emit_input_error,
@@ -64,7 +65,7 @@ def evaluate_geek_cmd(
 	"""读取当前授权范围内的 BOSS 候选人简历并评估。"""
 	if not require_compliance_allowed(ctx, "recruiter-resume"):
 		return
-	service = service_for(ctx)
+	service = service_for(ctx, deferred=True)
 	if service is None:
 		return
 	store = RecruiterAIStore(ctx.obj["data_dir"])
@@ -140,7 +141,7 @@ def screen_applications_cmd(
 		return
 	if include_chat and not require_compliance_allowed(ctx, "recruiter-chatmsg"):
 		return
-	service = service_for(ctx)
+	service = service_for(ctx, deferred=True)
 	if service is None:
 		return
 	store = RecruiterAIStore(ctx.obj["data_dir"])
@@ -210,6 +211,9 @@ def screen_applications_cmd(
 					save=True, force=force,
 				)
 				(skipped if record.get("skipped") else processed).append(str(record.get("id", geek_id)))
+			except AIConfigurationError as exc:
+				emit_ai_error(ctx, "recruiter-ai-screen-applications", exc)
+				return
 			except (RecruiterAIError, AIServiceError) as exc:
 				failed.append({"candidate": str(ref.get("name") or geek_id), "error": str(exc)})
 
@@ -217,11 +221,15 @@ def screen_applications_cmd(
 		drafts: list[dict[str, Any]] = []
 		draft_failed: list[dict[str, str]] = []
 		if draft_top:
-			drafts, draft_failed = draft_for_records(
-				service=service, store=store, platform=platform,
-				records=ranked_records, limit=draft_top, include_chat=include_chat,
-				conversation_parser=conversation_to_text,
-			)
+			try:
+				drafts, draft_failed = draft_for_records(
+					service=service, store=store, platform=platform,
+					records=ranked_records, limit=draft_top, include_chat=include_chat,
+					conversation_parser=conversation_to_text,
+				)
+			except AIConfigurationError as exc:
+				emit_ai_error(ctx, "recruiter-ai-screen-applications", exc)
+				return
 
 	handle_output(
 		ctx, "recruiter-ai-screen-applications",
