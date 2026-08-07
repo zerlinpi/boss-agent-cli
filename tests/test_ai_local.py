@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 from boss_agent_cli.ai.config import AIConfigStore
 from boss_agent_cli.ai.local_models import LocalModelManifestError, parse_model_manifest
+from boss_agent_cli.ai.service import AIServiceError
 from boss_agent_cli.main import cli
 
 
@@ -86,12 +87,14 @@ def test_ai_local_status_reports_manifest_and_config(tmp_path: Path, monkeypatch
 	assert any(item["name"] == "qwen3:14b" for item in payload["data"]["recommended_models"])
 
 
-def test_ai_local_pull_requires_confirm_download(tmp_path: Path) -> None:
+def test_ai_local_pull_requires_confirm_download_without_side_effect(tmp_path: Path) -> None:
 	runner = CliRunner()
 
-	result = _invoke(runner, tmp_path, ["pull", "--model", "qwen3:14b"])
+	with patch("boss_agent_cli.commands.ai_local.subprocess.run") as run:
+		result = _invoke(runner, tmp_path, ["pull", "--model", "qwen3:14b"])
 
 	assert result.exit_code == 1
+	run.assert_not_called()
 	payload = json.loads(result.output)
 	assert payload["error"]["code"] == "CONFIRM_DOWNLOAD_REQUIRED"
 
@@ -107,6 +110,26 @@ def test_ai_local_pull_runs_ollama_pull_when_confirmed(tmp_path: Path) -> None:
 	run.assert_called_once()
 	payload = json.loads(result.output)
 	assert payload["data"]["status"] == "installed"
+
+
+def test_ai_local_pull_failure_does_not_emit_installed_success(tmp_path: Path) -> None:
+	runner = CliRunner()
+	with patch("boss_agent_cli.commands.ai_local.subprocess.run") as run:
+		run.return_value = MagicMock(returncode=1, stdout="", stderr="network failed")
+		result = _invoke(runner, tmp_path, ["pull", "--model", "qwen3:14b", "--confirm-download"])
+	assert result.exit_code == 1
+	payload = json.loads(result.output)
+	assert payload["error"]["code"] == "LOCAL_MODEL_PULL_FAILED"
+	assert payload["data"] is None
+
+
+def test_ai_local_pull_missing_ollama_is_reported_without_traceback(tmp_path: Path) -> None:
+	runner = CliRunner()
+	with patch("boss_agent_cli.commands.ai_local.subprocess.run", side_effect=FileNotFoundError("ollama")):
+		result = _invoke(runner, tmp_path, ["pull", "--model", "qwen3:14b", "--confirm-download"])
+	assert result.exit_code == 1
+	payload = json.loads(result.output)
+	assert payload["error"]["code"] == "LOCAL_MODEL_PULL_FAILED"
 
 
 def test_ai_local_import_registers_external_model(tmp_path: Path, monkeypatch) -> None:
@@ -137,3 +160,17 @@ def test_ai_local_smoke_calls_openai_compatible_endpoint(tmp_path: Path, monkeyp
 	payload = json.loads(result.output)
 	assert payload["command"] == "ai.local.smoke"
 	assert payload["data"]["status"] == "ok"
+
+
+def test_ai_local_smoke_failure_stops_after_error(tmp_path: Path, monkeypatch) -> None:
+	monkeypatch.setenv("BOSS_AGENT_MACHINE_ID", "test-machine")
+	runner = CliRunner()
+	_invoke(runner, tmp_path, ["configure", "--runtime", "ollama", "--model", "qwen3:14b"])
+
+	with patch("boss_agent_cli.commands.ai_local.AIService.chat", side_effect=AIServiceError("offline")):
+		result = _invoke(runner, tmp_path, ["smoke"])
+
+	assert result.exit_code == 1
+	payload = json.loads(result.output)
+	assert payload["error"]["code"] == "AI_API_ERROR"
+	assert payload["data"] is None
