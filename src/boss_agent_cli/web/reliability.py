@@ -1,11 +1,12 @@
 """Reliability guards for the recruiter Web workspace.
 
 This module keeps compatibility fixes small and isolated from the large Web
-controller.  It is installed once by :mod:`boss_agent_cli.web`.
+controller. It is installed once by :mod:`boss_agent_cli.web`.
 """
 
 from __future__ import annotations
 
+import json
 import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -43,8 +44,19 @@ def _as_utc(value: Any) -> datetime | None:
 	return parsed.astimezone(timezone.utc)
 
 
+def _normalize_friend_id(value: Any) -> int | None:
+	"""Return the integer friend id required by chat_history, or None when malformed."""
+	if isinstance(value, bool) or value in (None, ""):
+		return None
+	try:
+		parsed = int(str(value).strip())
+	except (TypeError, ValueError):
+		return None
+	return parsed if parsed > 0 else None
+
+
 def install_controller_reliability() -> None:
-	"""Install lazy AI resolution and legacy-safe analytics."""
+	"""Install lazy AI resolution, stable refs, bounded reads, and legacy-safe analytics."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -52,9 +64,15 @@ def install_controller_reliability() -> None:
 
 	controller_cls = controller_module.RecruiterWebController
 	original_service = controller_cls._service
+	original_extract_candidate_ref = controller_module.extract_candidate_ref
 
 	def lazy_service(self: Any) -> _LazyAIService:
 		return _LazyAIService(self, original_service)
+
+	def extract_candidate_ref(item: dict[str, Any], *, default_job_id: str | None = None) -> dict[str, Any]:
+		ref = original_extract_candidate_ref(item, default_job_id=default_job_id)
+		ref["friend_id"] = _normalize_friend_id(ref.get("friend_id"))
+		return ref
 
 	def analytics(self: Any, job_key: str) -> dict[str, Any]:
 		records = list(self.store.latest_by_candidate(job_key=job_key).values())
@@ -106,10 +124,8 @@ def install_controller_reliability() -> None:
 		items: list[dict[str, Any]] = []
 		for path in sorted(self.store.replies_dir.glob("reply_*.json"), reverse=True):
 			try:
-				import json
-
 				payload = json.loads(path.read_text(encoding="utf-8"))
-			except (OSError, ValueError):
+			except (OSError, json.JSONDecodeError):
 				continue
 			if not isinstance(payload, dict):
 				continue
@@ -123,6 +139,7 @@ def install_controller_reliability() -> None:
 	setattr(controller_cls, "_service", lazy_service)
 	setattr(controller_cls, "analytics", analytics)
 	setattr(controller_cls, "replies", replies)
+	setattr(controller_module, "extract_candidate_ref", extract_candidate_ref)
 
 
 def install_server_reliability(server_module: Any) -> None:
