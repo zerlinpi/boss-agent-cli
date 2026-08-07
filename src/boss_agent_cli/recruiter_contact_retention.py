@@ -8,6 +8,7 @@ from typing import Any, cast
 import boss_agent_cli.recruiter_ai_models as model_module
 from boss_agent_cli.commands.recruiter.resume_parser import parse_resume
 from boss_agent_cli.recruiter_ai_store import RecruiterAIStore as BaseRecruiterAIStore
+from boss_agent_cli.recruiter_reply_safety import scan_reply_safety
 
 _LOCAL_CONTACT_FIELDS = {
 	"contact", "email", "mobile", "phone", "phone_number", "qq", "wechat", "weixin",
@@ -232,5 +233,13 @@ class RecruiterAIStore(BaseRecruiterAIStore):
 		)
 		record["conversation"] = conversation
 		record["local_contact_retained"] = True
+		stored_draft = record.get("draft")
+		if isinstance(stored_draft, dict):
+			flags = scan_reply_safety(str(stored_draft.get("reply") or ""))
+			stored_draft["safety_flags"] = flags
+			stored_draft["prohibited_content_detected"] = bool(
+				stored_draft.get("prohibited_content_detected") or flags
+			)
+		record["requires_human_review"] = True
 		self._write(self.replies_dir / f"{record['id']}.json", record)
 		return record
