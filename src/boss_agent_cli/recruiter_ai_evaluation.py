@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from typing import Any
 
 from boss_agent_cli.ai.service import ChatService
@@ -81,6 +82,10 @@ def _finite_number(value: Any, *, default: float) -> float:
 	return number if math.isfinite(number) else default
 
 
+def _requirement_key(value: Any) -> str:
+	return re.sub(r"\s+", " ", str(value)).strip().casefold()
+
+
 def _recommendation_for(
 	score: int,
 	thresholds: dict[str, int],
@@ -138,9 +143,19 @@ def validate_evaluation(
 		raise RecruiterAIError("评分规则总分必须是大于 0 的有限数字")
 	total_score = int(round(total_points / max_points * 100))
 
+	configured_hard = normalized_rubric["hard_requirements"]
+	configured_names = {
+		_requirement_key(item["requirement"]): item["requirement"]
+		for item in configured_hard
+		if _requirement_key(item["requirement"])
+	}
 	hard_results: list[dict[str, Any]] = []
 	for item in payload.get("hard_requirements", []):
 		if not isinstance(item, dict):
+			continue
+		requirement = str(item.get("requirement", "")).strip()
+		key = _requirement_key(requirement)
+		if not key:
 			continue
 		status = str(item.get("status", "unclear")).lower()
 		if status not in {"met", "missing", "unclear"}:
@@ -149,18 +164,28 @@ def validate_evaluation(
 		if status == "met" and not evidence:
 			status = "unclear"
 		hard_results.append({
-			"requirement": str(item.get("requirement", "")).strip(),
+			"requirement": configured_names.get(key, requirement),
 			"status": status,
 			"evidence": evidence,
 		})
-	configured_hard = normalized_rubric["hard_requirements"]
-	by_requirement = {item["requirement"]: item for item in hard_results if item["requirement"]}
+	by_requirement = {_requirement_key(item["requirement"]): item for item in hard_results}
 	for spec in configured_hard:
-		if spec["requirement"] not in by_requirement:
+		key = _requirement_key(spec["requirement"])
+		if key not in by_requirement:
 			hard_results.append({"requirement": spec["requirement"], "status": "unclear", "evidence": []})
-	required_names = {item["requirement"] for item in configured_hard if item.get("required", True)}
-	hard_missing = any(item["status"] == "missing" and item["requirement"] in required_names for item in hard_results)
-	hard_unclear = any(item["status"] == "unclear" and item["requirement"] in required_names for item in hard_results)
+	required_keys = {
+		_requirement_key(item["requirement"])
+		for item in configured_hard
+		if item.get("required", True)
+	}
+	hard_missing = any(
+		item["status"] == "missing" and _requirement_key(item["requirement"]) in required_keys
+		for item in hard_results
+	)
+	hard_unclear = any(
+		item["status"] == "unclear" and _requirement_key(item["requirement"]) in required_keys
+		for item in hard_results
+	)
 
 	confidence = round(max(0.0, min(1.0, _finite_number(payload.get("confidence", 0.5), default=0.5))), 3)
 	evidenced_dimensions = sum(1 for item in dimensions if item["evidence"])
