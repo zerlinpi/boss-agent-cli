@@ -14,6 +14,13 @@ def _safe_str(val: Any) -> str:
 	return str(val)
 
 
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+	"""Normalize optional API list fields without trusting remote payload shape."""
+	if not isinstance(value, list):
+		return []
+	return [item for item in value if isinstance(item, dict)]
+
+
 def _gender_label(base: dict[str, Any]) -> str:
 	"""Use an explicit label when available and never guess unknown gender codes."""
 	description = base.get("genderDesc")
@@ -56,9 +63,8 @@ def _parse_expect(info: dict[str, Any]) -> dict[str, Any]:
 
 def _parse_works(info: dict[str, Any]) -> list[dict[str, Any]]:
 	result = []
-	for w in info.get("geekWorkExpList", []):
-		if not isinstance(w, dict):
-			continue
+	for w in _dict_list(info.get("geekWorkExpList")):
+		emphasis = w.get("workEmphasis")
 		result.append({
 			"company": w.get("company", ""),
 			"position": w.get("positionName", ""),
@@ -68,16 +74,14 @@ def _parse_works(info: dict[str, Any]) -> list[dict[str, Any]]:
 			"duration": w.get("workYearDesc", ""),
 			"responsibility": w.get("responsibility", ""),
 			"performance": w.get("workPerformance", ""),
-			"keywords": w.get("workEmphasis", "").split("#&#") if isinstance(w.get("workEmphasis"), str) and w.get("workEmphasis") else [],
+			"keywords": emphasis.split("#&#") if isinstance(emphasis, str) and emphasis else [],
 		})
 	return result
 
 
 def _parse_projects(info: dict[str, Any]) -> list[dict[str, Any]]:
 	result = []
-	for p in info.get("geekProjExpList", []):
-		if not isinstance(p, dict):
-			continue
+	for p in _dict_list(info.get("geekProjExpList")):
 		result.append({
 			"name": p.get("name", ""),
 			"role": p.get("roleName", ""),
@@ -92,9 +96,7 @@ def _parse_projects(info: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _parse_education(info: dict[str, Any]) -> list[dict[str, Any]]:
 	result = []
-	for e in info.get("geekEduExpList", []):
-		if not isinstance(e, dict):
-			continue
+	for e in _dict_list(info.get("geekEduExpList")):
 		result.append({
 			"school": e.get("school", ""),
 			"major": e.get("major", ""),
@@ -109,13 +111,10 @@ def _parse_competitive(info: dict[str, Any]) -> list[str]:
 	jc = info.get("jobCompetitive") or {}
 	if not isinstance(jc, dict):
 		return []
-	tips = jc.get("tips") or []
-	if not isinstance(tips, list):
-		return []
 	return [
 		str(t.get("content", ""))
-		for t in tips
-		if isinstance(t, dict) and t.get("content")
+		for t in _dict_list(jc.get("tips"))
+		if t.get("content")
 	]
 
 
@@ -128,13 +127,10 @@ def parse_resume(raw: dict[str, Any]) -> dict[str, Any]:
 	if not isinstance(info, dict):
 		info = {}
 
-	certifications = info.get("geekCertificationList", [])
-	if not isinstance(certifications, list):
-		certifications = []
 	certs = [
 		_safe_str(c.get("certName"))
-		for c in certifications
-		if isinstance(c, dict) and c.get("certName")
+		for c in _dict_list(info.get("geekCertificationList"))
+		if c.get("certName")
 	]
 
 	return {
