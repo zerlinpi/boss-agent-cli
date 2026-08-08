@@ -6,12 +6,12 @@ import re
 from typing import Any, Callable, cast
 
 _PROXY_RUBRIC_PATTERN = re.compile(
-	 r"(?:80|85|90|95|00)后(?:候选人|人选|人才|优先)?|"
-	 r"年轻(?:候选人|人选|人才|员工|男性|女性)|年轻\s*(?:优先|为佳|更佳|偏好)|"
-	 r"\byoung(?:er)?\s+(?:candidate|applicant|preferred)\b|"
-	 r"\b(?:under|below)\s*\d{1,2}\s*(?:years?\s*old|y/?o)\b|"
-	 r"\bborn\s+(?:after|before)\s+(?:19|20)\d{2}\b",
-	 re.IGNORECASE,
+	r"(?:80|85|90|95|00)后(?:候选人|人选|人才|优先)?|"
+	r"年轻(?:候选人|人选|人才|员工|男性|女性)|年轻\s*(?:优先|为佳|更佳|偏好)|"
+	r"\byoung(?:er)?\s+(?:candidate|applicant|preferred)\b|"
+	r"\b(?:under|below)\s*\d{1,2}\s*(?:years?\s*old|y/?o)\b|"
+	r"\bborn\s+(?:after|before)\s+(?:19|20)\d{2}\b",
+	re.IGNORECASE,
 )
 
 _VAGUE_PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -26,6 +26,14 @@ _VAGUE_PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 	(
 		re.compile(r"婚姻\s*(?:偏好|要求|限制|门槛|稳定(?:性)?\s*(?:优先|加分|更佳)?)"),
 		"[婚姻偏好已隔离]",
+	),
+	(
+		re.compile(r"(?:你|您)?\s*(?:是否|有没有|有无)?\s*(?:结婚|婚否|婚姻情况|婚姻状态)(?:了|吗|呢)?"),
+		"[婚姻问题已隔离]",
+	),
+	(
+		re.compile(r"(?:你|您)?\s*(?:是否有|有没有|有无)\s*孩子(?:吗|呢)?|(?:你|您)?\s*有孩子吗"),
+		"[家庭情况已隔离]",
 	),
 	(
 		re.compile(r"(?:80|85|90|95|00)后(?:候选人|人选|人才|优先)?"),
