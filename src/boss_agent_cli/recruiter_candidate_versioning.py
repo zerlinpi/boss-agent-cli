@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -30,8 +31,15 @@ def _version_key(record: dict[str, Any]) -> tuple[datetime, str]:
 	return _created_at_utc(record), str(record.get("id") or "")
 
 
+def _finite_score(value: Any) -> float:
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		return -1.0
+	number = float(value)
+	return number if math.isfinite(number) else -1.0
+
+
 def install_candidate_version_ordering(store_cls: type[Any]) -> None:
-	"""Select latest logical candidate versions by actual UTC time, not ISO string ordering."""
+	"""Select and rank candidate versions by actual UTC time, not ISO string ordering."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -46,4 +54,21 @@ def install_candidate_version_ordering(store_cls: type[Any]) -> None:
 				latest[key] = record
 		return latest
 
+	def rank(self: Any, *, job_key: str, top: int) -> list[dict[str, Any]]:
+		def sort_key(record: dict[str, Any]) -> tuple[float, float, datetime, str]:
+			evaluation = record.get("evaluation")
+			if not isinstance(evaluation, dict):
+				return -1.0, -1.0, _MIN_UTC, str(record.get("id") or "")
+			created_at, record_id = _version_key(record)
+			return (
+				_finite_score(evaluation.get("total_score")),
+				_finite_score(evaluation.get("confidence")),
+				created_at,
+				record_id,
+			)
+
+		limit = max(0, min(int(top), 10_000))
+		return sorted(self.latest_by_candidate(job_key=job_key).values(), key=sort_key, reverse=True)[:limit]
+
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
+	setattr(store_cls, "rank", rank)
