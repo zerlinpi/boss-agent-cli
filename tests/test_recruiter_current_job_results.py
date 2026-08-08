@@ -1,5 +1,7 @@
+import pytest
+
 from boss_agent_cli.recruiter_ai import normalize_rubric
-from boss_agent_cli.web import RecruiterWebController
+from boss_agent_cli.web import RecruiterWebController, WebConsoleError
 
 
 def _evaluation(score: int):
@@ -63,3 +65,37 @@ def test_web_current_results_restore_only_re_evaluated_candidates(tmp_path) -> N
 	assert result["items"][0]["total_score"] == 90
 	assert result["stale_count"] == 1
 	assert result["report"]["total_candidates"] == 1
+
+
+def test_web_reply_rejects_evaluation_from_old_job_config_before_ai_call(tmp_path) -> None:
+	controller = RecruiterWebController(tmp_path)
+	rubric = normalize_rubric()
+	controller.store.save_job(job_key="java", jd_text="旧 JD", rubric=rubric)
+	record = controller.store.save_evaluation(
+		job_key="java", jd_text="旧 JD", resume={"basic": {"name": "A"}},
+		evaluation=_evaluation(80), source={"type": "zhipin", "geek_id": "g1"}, rubric=rubric,
+	)
+	controller.store.save_job(job_key="java", jd_text="新 JD", rubric=rubric)
+
+	with pytest.raises(WebConsoleError) as exc_info:
+		controller.generate_reply({"evaluation_id": record["id"], "intent": "auto", "conversation": ""})
+	assert exc_info.value.code == "STALE_EVALUATION"
+	assert exc_info.value.status == 409
+
+
+def test_web_reply_rejects_superseded_candidate_version_before_ai_call(tmp_path) -> None:
+	controller = RecruiterWebController(tmp_path)
+	rubric = normalize_rubric()
+	controller.store.save_job(job_key="java", jd_text="JD", rubric=rubric)
+	old = controller.store.save_evaluation(
+		job_key="java", jd_text="JD", resume={"basic": {"name": "A"}, "raw_text": "v1"},
+		evaluation=_evaluation(70), source={"type": "zhipin", "geek_id": "g1"}, rubric=rubric,
+	)
+	controller.store.save_evaluation(
+		job_key="java", jd_text="JD", resume={"basic": {"name": "A"}, "raw_text": "v2"},
+		evaluation=_evaluation(85), source={"type": "zhipin", "geek_id": "g1"}, rubric=rubric,
+	)
+
+	with pytest.raises(WebConsoleError) as exc_info:
+		controller.generate_reply({"evaluation_id": old["id"], "intent": "auto", "conversation": ""})
+	assert exc_info.value.code == "STALE_EVALUATION"
