@@ -129,7 +129,7 @@ def _register_recruiter_ai_schema() -> None:
 		return
 	subcommands["ai"] = (
 		"本地招聘 AI 工作台：configure/jobs/evaluate/evaluate-geek/screen/"
-		"screen-applications/rank/report/mark/reply；只生成辅助评分和回复草稿，"
+		"screen-applications/batch/rank/report/mark/reply；只生成辅助评分和回复草稿，"
 		"不自动录用、淘汰或发送消息"
 	)
 
