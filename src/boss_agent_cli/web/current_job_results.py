@@ -7,6 +7,7 @@ from contextvars import ContextVar
 from importlib.resources import files
 from typing import Any, Callable, Iterator
 
+from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
 from boss_agent_cli.web import controller as controller_module
 
 _INSTALLED = False
@@ -59,6 +60,35 @@ def _attach_stale_count(payload: dict[str, Any], scope: dict[str, Any] | None) -
 	return payload
 
 
+def _require_current_evaluation(controller: Any, evaluation_id: str) -> None:
+	record = controller.store.get_evaluation(evaluation_id)
+	job_key = str(record.get("job_key") or "")
+	if not job_key:
+		raise controller_module.WebConsoleError(
+			"STALE_EVALUATION", "评估记录缺少岗位信息，请重新筛选候选人", status=409,
+		)
+	try:
+		job = controller.store.get_job(job_key)
+	except controller_module.RecruiterAIError as exc:
+		raise controller_module.WebConsoleError(
+			"STALE_EVALUATION", "岗位配置已变化或不存在，请重新筛选候选人", status=409,
+		) from exc
+	job_scope = {
+		"jd_text": str(job.get("jd_text") or ""),
+		"rubric_fingerprint": str(job.get("rubric_fingerprint") or ""),
+	}
+	if not _matches_current_job(record, job_scope):
+		raise controller_module.WebConsoleError(
+			"STALE_EVALUATION", "该候选人评估基于旧 JD 或评分规则，请重新筛选后再生成草稿", status=409,
+		)
+	latest = controller.store.latest_by_candidate(job_key=job_key)
+	candidate = latest.get(canonical_candidate_key(record))
+	if not isinstance(candidate, dict) or str(candidate.get("id") or "") != evaluation_id:
+		raise controller_module.WebConsoleError(
+			"STALE_EVALUATION", "该候选人已有更新的评估版本，请使用最新结果生成草稿", status=409,
+		)
+
+
 def install_current_job_results() -> None:
 	"""Exclude evaluations produced for older JD/rubric versions from current Web decisions."""
 	global _INSTALLED
@@ -73,6 +103,7 @@ def install_current_job_results() -> None:
 	original_report: Callable[..., dict[str, Any]] = controller_cls.report
 	original_analytics: Callable[..., dict[str, Any]] = controller_cls.analytics
 	original_export: Callable[..., dict[str, str]] = controller_cls.export_candidates
+	original_generate_reply: Callable[..., dict[str, Any]] = controller_cls.generate_reply
 
 	def latest_by_candidate(self: Any, *, job_key: str) -> dict[str, dict[str, Any]]:
 		records = original_latest(self, job_key=job_key)
@@ -106,11 +137,18 @@ def install_current_job_results() -> None:
 		with _current_job_scope(self, job_key):
 			return original_export(self, job_key)
 
+	def generate_reply(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+		evaluation_id = str(payload.get("evaluation_id") or "").strip()
+		if evaluation_id:
+			_require_current_evaluation(self, evaluation_id)
+		return original_generate_reply(self, payload)
+
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
 	setattr(controller_cls, "candidates", candidates)
 	setattr(controller_cls, "report", report)
 	setattr(controller_cls, "analytics", analytics)
 	setattr(controller_cls, "export_candidates", export_candidates)
+	setattr(controller_cls, "generate_reply", generate_reply)
 
 
 def install_current_job_result_assets(server_module: Any) -> None:
