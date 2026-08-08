@@ -112,13 +112,14 @@ def _redact_nested_strings(value: Any, sanitizer: Callable[[str], str]) -> Any:
 
 
 def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -> None:
-	"""Harden model input, rubric validation, and locally persisted conversations."""
+	"""Harden model input, rubric validation, incremental invalidation, and local persistence."""
 	if getattr(model_module, "_recruiter_privacy_hardening_installed", False):
 		return
 
 	original_redact: Callable[[str], str] = model_module.redact_contact_text
 	original_redact_resume: Callable[[dict[str, Any]], dict[str, Any]] = model_module.redact_resume_for_model
 	original_normalize_rubric: Callable[[dict[str, Any] | None], dict[str, Any]] = model_module.normalize_rubric
+	original_find_unchanged: Callable[..., dict[str, Any] | None] = store_cls.find_unchanged
 	original_save_reply: Callable[..., dict[str, Any]] = store_cls.save_reply
 
 	def hardened_redact(text: str) -> str:
@@ -166,6 +167,22 @@ def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -
 
 		return original_normalize_rubric(raw)
 
+	def hardened_find_unchanged(self: Any, **kwargs: Any) -> dict[str, Any] | None:
+		record = original_find_unchanged(self, **kwargs)
+		if record is None:
+			return None
+		job_key = str(kwargs.get("job_key") or "")
+		if not job_key:
+			return record
+		try:
+			job = self.get_job(job_key)
+		except model_module.RecruiterAIError:
+			return record
+		current_jd = str(job.get("jd_text") or "") if isinstance(job, dict) else ""
+		if current_jd and str(record.get("jd_text") or "") != current_jd:
+			return None
+		return record
+
 	def hardened_save_reply(self: Any, **kwargs: Any) -> dict[str, Any]:
 		conversation = str(kwargs.get("conversation") or "")
 		sanitized = sanitize_local_conversation(conversation)
@@ -182,6 +199,7 @@ def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -
 	model_module.redact_contact_text = hardened_redact
 	model_module.redact_resume_for_model = hardened_redact_resume
 	model_module.normalize_rubric = hardened_normalize_rubric
+	setattr(store_cls, "find_unchanged", hardened_find_unchanged)
 	setattr(store_cls, "save_reply", hardened_save_reply)
 	setattr(model_module, "_recruiter_privacy_hardening_installed", True)
 
