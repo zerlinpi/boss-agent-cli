@@ -17,9 +17,9 @@
         ↓
 按岗位相关维度评分并保存证据
         ↓
-本地重算总分 + 硬条件门禁
+本地重算总分 + 硬条件门禁 + 模型输出安全过滤
         ↓
-候选人去重、增量检测、排行榜
+候选人去重、增量检测、当前岗位排行榜
         ↓
 AI 追问 / 面试 / 澄清 / 婉拒草稿
         ↓
@@ -64,7 +64,7 @@ boss --json hr ai configure \
   "dimensions": [
     {"name": "required_skills", "max_score": 35, "description": "必需技术栈"},
     {"name": "relevant_experience", "max_score": 25, "description": "相关工作经验"},
-    {"name": "project_evidence", "max_score": 20, "description": "项目规模和个人贡献"},
+    {"name": "项目复杂度", "max_score": 20, "description": "项目规模和个人贡献"},
     {"name": "achievement_evidence", "max_score": 20, "description": "量化成果"}
   ],
   "thresholds": {
@@ -84,7 +84,7 @@ boss --json hr ai configure \
   --rubric @java-rubric.json
 ```
 
-评分规则只能使用岗位相关能力、职责、经历和成果证据。下列内容不能作为评分维度、硬条件或指令：
+评分规则只能使用岗位相关能力、职责、经历和成果证据。下列内容不能作为评分维度、硬条件、画像条件或建议面试问题：
 
 - 年龄、出生日期；
 - 性别、照片、外貌、身高体重；
@@ -92,9 +92,12 @@ boss --json hr ai configure \
 - 民族、种族、国籍；
 - 宗教、政治身份/党派；
 - 健康、疾病、残障；
+- `90后 / 年轻优先 / under 30 / born after 1995` 等年龄代理条件；
 - 其他与岗位能力无关的个人属性。
 
-该限制由本地 `normalize_rubric()` 强制执行，不只依赖模型提示词。AI 岗位分析返回的标题、候选人画像和建议面试问题也使用同一门禁。
+该限制由本地 `normalize_rubric()` 强制执行，不只依赖模型提示词。AI 岗位分析返回的标题、候选人画像和建议面试问题也使用同一门禁。直接调用 `RecruiterAIStore.save_job()` 或 `save_evaluation()` 也不能绕过该契约。
+
+评分维度会做 Unicode-safe 的 canonicalization，因此 `required_skills / RequiredSkills / Required Skills / required-skills` 可以匹配同一维度，同时 `后端经验 / 项目复杂度` 等中文自定义维度也可以正常使用。归一化后重复的维度或硬性要求会被拒绝。
 
 查看岗位配置：
 
@@ -115,7 +118,14 @@ boss --json hr ai screen \
   --top 20
 ```
 
-再次执行时，系统会根据候选人标识、简历指纹和评分规则指纹跳过未发生变化的记录。需要强制重评时添加：
+再次执行时，系统会根据以下输入判断是否真的发生变化：
+
+- 稳定候选人标识；
+- 简历指纹；
+- **岗位 JD**；
+- 评分规则指纹。
+
+只修改 JD、即使 rubric 完全不变，也会触发重新评估。需要无条件重评时添加：
 
 ```bash
 --force
@@ -124,6 +134,8 @@ boss --json hr ai screen \
 本地文件使用规范化来源路径形成稳定候选人身份。因此同一路径的简历内容更新会形成同一候选人的新评估版本，而不是新的人才记录。
 
 如果本轮所有候选人都未变化，CLI 不需要提前加载 AI 配置；即使当前没有配置 AI，也能完成增量检查。只有实际需要重新评分或生成新草稿时才解析 AI 服务配置。
+
+CLI 批量筛选会在当前 `RecruiterAIStore` 生命周期内复用 latest-candidate 索引，避免每份简历重新扫描整个 `evaluations/` 目录；本轮保存新评估或目录发生外部变化时缓存会更新/失效。
 
 为本轮新评估候选人中的前 5 名生成回复草稿：
 
@@ -152,7 +164,7 @@ boss --json hr ai screen-applications \
   --top 15
 ```
 
-BOSS 候选人的稳定身份优先使用 `geek_id`，避免聊天会话 `friend_id` 变化时把同一候选人误判成新人。
+BOSS 候选人的稳定身份优先使用 `geek_id`，再退到其他平台 ID。分页读取会对同一候选人去重，避免分页边界重复拉取简历；`--force` 也不会因为分页重复而对同一候选人重复评分。
 
 为本轮实际新评估的前 5 名生成回复草稿，并在可用时读取聊天上下文：
 
@@ -169,7 +181,7 @@ boss --json hr ai screen-applications \
 
 输出中的 `messages_sent` 始终为 `0`。招聘人员必须审核草稿后回到 BOSS 官方页面发送。
 
-候选人列表缺少 `geek_id` 或 `security_id` 时，该候选人会进入 `failed`，不会影响其他候选人继续处理。
+候选人列表缺少必要的平台标识时，该候选人会进入 `failed`，不会影响其他候选人继续处理。
 
 ## 5. 评估单个候选人
 
@@ -181,7 +193,7 @@ boss --json hr ai evaluate \
   --resume @candidate.json
 ```
 
-`@candidate.json` 同样会把文件路径作为稳定候选人身份。重复执行时若简历和评分规则均未变化，可以直接返回原评估记录而不调用模型。
+`@candidate.json` 同样会把文件路径作为稳定候选人身份。重复执行时只有在**简历、JD 和评分规则都未变化**时，才会直接返回原评估记录而不调用模型。
 
 直接读取 BOSS 候选人：
 
@@ -203,15 +215,22 @@ boss --json hr ai rank --job-key java-backend --top 20
 boss --json hr ai report --job-key java-backend --top 10
 ```
 
+对于**已保存的岗位**，当前排名和报告只统计与当前保存的 JD + rubric 一致的评估。修改岗位后，历史 JSON 不会删除，但旧评估会进入 stale 状态，直到候选人重新评估。
+
 `report` 返回：
 
-- 去重后的候选人数；
+- 当前配置下去重后的候选人数；
+- `stale_count`：最新候选人版本中基于旧 JD/rubric、等待重评的数量；
 - `strong_interview / interview / manual_review / not_recommended` 分组；
 - 招聘人员手工阶段统计；
 - Top 候选人分数、证据、风险、待追问问题和来源；
 - `human_review_required: true`。
 
-Web 候选人列表的排名、报告和分析在同一次请求中共享 latest-candidate 索引，避免多次重复扫描评估目录。
+没有保存岗位配置的 ad-hoc CLI 评估仍可按 `job_key` 排名，不会因为缺少岗位文件而被全部视为 stale。岗位文件如果存在但损坏，则会直接返回结构化错误，不会退回历史结果。
+
+候选人的历史 `created_at` 即使混用 `Z`、`+08:00` 或无时区格式，也会先转换为实际 UTC 时间再选择最新版本和处理并列排序。
+
+Web 候选人列表的排名、报告和分析在同一次请求中共享 latest-candidate 索引；CLI `report` 也复用同一次历史加载，不会为了 Top candidates 再扫描一次目录。
 
 ## 7. 生成 AI 回复草稿
 
@@ -240,11 +259,19 @@ boss --json hr ai reply \
 - `clarify`
 - `decline_draft`
 
+回复必须关联真实 evaluation，不允许生成孤儿 reply 记录，而且该 evaluation 必须：
+
+1. 是同一逻辑候选人的最新版本；
+2. 对于已保存岗位，仍与当前 JD 和 rubric 一致。
+
+旧 JD、旧评分规则或已经被新评估替代的 evaluation 会被拒绝。Web 返回 `STALE_EVALUATION` / HTTP 409；CLI 会在加载 AI 配置和调用模型之前返回结构化输入错误。因此旧历史记录仍可审计，但不能直接成为新的 AI 沟通依据。
+
 所有草稿都包含 `requires_human_review: true`。本地规则会额外扫描：
 
 - 受保护属性询问；
-- 确定录用/Offer 承诺；
+- 确定录用/Offer 承诺，例如“我们决定录用你 / 欢迎入职”；
 - 电话、邮箱、微信、QQ 等联系方式异常暴露；
+- 身份证、护照、住宅地址等高风险身份数据暴露；
 - 异常长回复。
 
 草稿保存在：
@@ -252,8 +279,6 @@ boss --json hr ai reply \
 ```text
 ~/.boss-agent/recruiter-ai/replies/
 ```
-
-回复必须关联真实 evaluation，不允许生成孤儿 reply 记录。
 
 ## 8. 人工管理候选人阶段
 
@@ -281,22 +306,37 @@ boss --json hr ai mark \
 
 模型提供各维度分数和证据，但最终 `total_score` 由本地代码根据维度分数重新计算，模型无法直接决定总分。
 
-评分维度名称会进行大小写、空格和连字符归一，例如配置 `required_skills` 时，模型返回 `Required Skills` 不会导致该维度意外归零。模型自行增加的未知维度不会进入本地总分。
+评分维度名称会进行 Unicode-safe 的大小写、camelCase、空格和标点归一。例如配置 `required_skills` 时，模型返回 `RequiredSkills / Required Skills / required-skills` 不会导致该维度意外归零；中文维度名不会因为归一化被丢失。
+
+模型自行增加的未知维度不会进入本地总分；自行增加的未配置硬条件也不会进入正式硬条件结果。
 
 硬性要求同样做大小写和多余空白归一；配置 `Java`、模型返回 `  java  ` 时会匹配同一标准条件，并保留配置中的 `Java` 作为输出名称。
 
+模型输出不是直接写入 UI：维度 evidence/reason、硬条件 evidence、strengths、concerns、next questions 和 summary 还会经过本地安全过滤。如果模型自行输出年龄、婚育、性别、政治/宗教/健康信息或联系方式，该内容会被移除；违规 evidence 不能继续支撑正分，同时结果强制降级为 `manual_review` 并记录安全标记。
+
 如果必需硬条件被标记为 `missing` 或 `unclear`，推荐结果会强制变为 `manual_review`，防止信息缺失时自动形成不利决定。
 
-系统会保存：
+## 本地数据与高风险身份数据
 
-- JD；
-- 评分规则及版本；
-- 简历指纹；
-- 候选人来源；
-- 各维度评分和证据；
-- AI 置信度；
-- 人工阶段和备注；
-- 回复草稿。
+本地人工流程可以保留：
+
+- 姓名；
+- 手机/座机；
+- 邮箱；
+- 微信；
+- QQ；
+- 招聘阶段和人工备注；
+- 用于沟通的聊天内容。
+
+但身份证、护照、住宅详细地址不属于日常约面所需数据。标准化简历、直接 `Store.save_evaluation()`、增量指纹查询和 reply conversation 使用同一清理策略：
+
+- 连续或常见空格/短横线格式的身份证号会移除；
+- `passport / passportNo / 护照号` 等结构化字段会移除；
+- 带明确标签的护照号码会移除；
+- 家庭住址、现住址、居住地址、住宅地址等会移除；
+- `面试地址` 等招聘流程信息不会被住宅地址规则误删。
+
+模型输入还会进一步去除姓名、联系方式和受保护属性，因此“本地 HR 可见信息”和“AI 决策输入”仍是两条独立通道。
 
 ## 数据目录
 
@@ -307,4 +347,4 @@ boss --json hr ai mark \
 └── replies/
 ```
 
-这些文件可能包含候选人简历和聊天上下文，应限制目录权限、设置保留期限，并在招聘流程结束后按公司的个人信息管理制度清理。
+这些文件仍可能包含候选人姓名、联系方式和聊天上下文，应限制目录权限、设置保留期限，并在招聘流程结束后按公司的个人信息管理制度清理。
