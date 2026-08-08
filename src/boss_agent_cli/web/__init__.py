@@ -5,6 +5,10 @@ from boss_agent_cli.web import tasks as _tasks
 from boss_agent_cli.web.boss_draft_scope import install_boss_draft_scope
 from boss_agent_cli.web.contact_extension import install_contact_assets
 from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleError
+from boss_agent_cli.web.current_job_results import (
+	install_current_job_result_assets,
+	install_current_job_results,
+)
 from boss_agent_cli.web.deletion_serialization import install_deletion_serialization
 from boss_agent_cli.web.export_security import install_export_security
 from boss_agent_cli.web.job_analysis_safety import install_job_analysis_safety
@@ -21,6 +25,7 @@ install_controller_extensions()
 install_controller_reliability()
 install_job_analysis_safety()
 install_screening_cache()
+install_current_job_results()
 install_upload_policy()
 install_boss_draft_scope()
 install_task_manager_controls(_tasks)
@@ -33,6 +38,7 @@ install_server_reliability(_server)
 install_reply_assets(_server)
 install_contact_assets(_server)
 install_ui_reliability_assets(_server)
+install_current_job_result_assets(_server)
 install_task_control_server(_server)
 build_server = _server.build_server
 main = _server.main
