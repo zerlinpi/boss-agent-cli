@@ -17,6 +17,9 @@ from boss_agent_cli.commands.recruiter.ai_platform import (
 	evaluate_geek_cmd,
 	screen_applications_cmd,
 )
+from boss_agent_cli.commands.recruiter.ai_reply_freshness import install_reply_freshness
+
+install_reply_freshness(reply_cmd)
 
 
 @click.group("ai", help="招聘者 AI 岗位配置、简历筛选、排序和回复草稿")
