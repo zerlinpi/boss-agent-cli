@@ -29,7 +29,7 @@ def _current_job_scope(controller: Any, job_key: str) -> Iterator[dict[str, Any]
 		return
 	try:
 		job = controller.store.get_job(job_key)
-	except Exception:
+	except controller_module.RecruiterAIError:
 		yield None
 		return
 	scope = {
