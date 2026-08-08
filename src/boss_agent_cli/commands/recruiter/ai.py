@@ -17,8 +17,11 @@ from boss_agent_cli.commands.recruiter.ai_platform import (
 	evaluate_geek_cmd,
 	screen_applications_cmd,
 )
+from boss_agent_cli.commands.recruiter.ai_read_safety import install_read_error_guard
 from boss_agent_cli.commands.recruiter.ai_reply_freshness import install_reply_freshness
 
+install_read_error_guard(rank_cmd)
+install_read_error_guard(report_cmd)
 install_reply_freshness(reply_cmd)
 
 
