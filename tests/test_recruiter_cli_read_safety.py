@@ -1,4 +1,5 @@
 import json
+import os
 
 from click.testing import CliRunner
 
@@ -18,9 +19,7 @@ def _corrupt_saved_job(tmp_path) -> None:
 	path = store.jobs_dir / "java.json"
 	before = path.stat().st_mtime_ns
 	path.write_text("{not-json", encoding="utf-8")
-	path.touch()
-	if path.stat().st_mtime_ns == before:
-		path.write_text("{still-not-json", encoding="utf-8")
+	os.utime(path, ns=(before + 2_000_000_000, before + 2_000_000_000))
 
 
 def _invoke(command, tmp_path):
