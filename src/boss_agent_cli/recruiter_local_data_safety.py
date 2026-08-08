@@ -22,6 +22,7 @@ _RESIDENTIAL_ADDRESS_RE = re.compile(
 	r"(?:家庭住址|家庭地址|现住址|现居住址|居住地址|住宅地址|详细住址|住址)"
 	r"(?:\s*[:：]\s*|\s+)[^\n,，;；]{4,160}",
 )
+_HIGH_RISK_PATTERNS = (_CN_ID_RE, _PASSPORT_RE, _RESIDENTIAL_ADDRESS_RE)
 _DROP_FIELDS = {
 	"idcard", "idnumber", "identitynumber", "身份证", "身份证号",
 	"passport", "passportnumber", "passportno", "护照", "护照号", "护照号码",
@@ -32,6 +33,11 @@ _DROP_FIELDS = {
 
 def _canonical_field(value: Any) -> str:
 	return _FIELD_NORMALIZER.sub("", str(value).casefold())
+
+
+def contains_high_risk_identity_text(text: str) -> bool:
+	"""Return whether text includes non-operational identity/address data."""
+	return any(pattern.search(text) for pattern in _HIGH_RISK_PATTERNS)
 
 
 def sanitize_high_risk_identity_text(text: str) -> str:
