@@ -11,6 +11,7 @@ from boss_agent_cli.recruiter_contact_retention import (
 )
 from boss_agent_cli.recruiter_candidate_identity import install_stable_local_candidate_identity
 from boss_agent_cli.recruiter_candidate_state import install_candidate_state_retention
+from boss_agent_cli.recruiter_candidate_versioning import install_candidate_version_ordering
 from boss_agent_cli.recruiter_identity_safety import install_identity_alias_sanitizer
 from boss_agent_cli.recruiter_privacy_hardening import (
 	install_evaluation_output_hardening,
@@ -22,6 +23,7 @@ install_model_sanitizer()
 install_identity_alias_sanitizer()
 install_stable_local_candidate_identity()
 install_candidate_state_retention()
+install_candidate_version_ordering(RecruiterAIStore)
 install_model_and_store_hardening(_model_module, RecruiterAIStore)
 # recruiter_ai_store imports this helper by value before the runtime hardening layer is installed.
 # Keep direct Store API calls on the same rubric contract as CLI/Web entry points.
