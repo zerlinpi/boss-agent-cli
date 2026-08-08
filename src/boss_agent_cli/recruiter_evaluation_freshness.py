@@ -7,17 +7,13 @@ from typing import Any
 from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
 from boss_agent_cli.recruiter_ai_models import RecruiterAIError
 
-_JOB_NOT_FOUND_PREFIX = "岗位配置不存在:"
-
 
 def get_saved_job_optional(store: Any, job_key: str) -> dict[str, Any] | None:
 	"""Return a saved job, but never disguise invalid/corrupt job data as ad-hoc mode."""
-	try:
-		job = store.get_job(job_key)
-	except RecruiterAIError as exc:
-		if str(exc).startswith(_JOB_NOT_FOUND_PREFIX):
-			return None
-		raise
+	path = store.jobs_dir / f"{job_key}.json"
+	if not path.exists():
+		return None
+	job = store.get_job(job_key)
 	if not isinstance(job, dict):
 		raise RecruiterAIError(f"岗位配置损坏: {job_key}")
 	return job
