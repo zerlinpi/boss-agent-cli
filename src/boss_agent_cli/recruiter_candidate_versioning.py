@@ -7,8 +7,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boss_agent_cli.recruiter_ai_store as store_module
-from boss_agent_cli.recruiter_ai_models import CANDIDATE_STATUSES, RECOMMENDATIONS, RecruiterAIError
+from boss_agent_cli.recruiter_ai_models import CANDIDATE_STATUSES, RECOMMENDATIONS
 from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
+from boss_agent_cli.recruiter_evaluation_freshness import get_saved_job_optional
 
 _MIN_UTC = datetime.min.replace(tzinfo=timezone.utc)
 _INSTALLED = False
@@ -40,20 +41,24 @@ def _finite_score(value: Any) -> float:
 	return number if math.isfinite(number) else -1.0
 
 
-def _current_job_records(self: Any, job_key: str) -> list[dict[str, Any]]:
-	records = list(self.latest_by_candidate(job_key=job_key).values())
-	try:
-		job = self.get_job(job_key)
-	except RecruiterAIError:
+def _split_current_job_records(self: Any, job_key: str) -> tuple[list[dict[str, Any]], int]:
+	all_records = list(self.latest_by_candidate(job_key=job_key).values())
+	job = get_saved_job_optional(self, job_key)
+	if job is None:
 		# Ad-hoc CLI evaluations can intentionally exist without a persisted job profile.
-		return records
+		return all_records, 0
 	jd_text = str(job.get("jd_text") or "")
 	rubric_fingerprint = str(job.get("rubric_fingerprint") or "")
-	return [
-		record for record in records
+	current = [
+		record for record in all_records
 		if str(record.get("jd_text") or "") == jd_text
 		and str(record.get("rubric_fingerprint") or "") == rubric_fingerprint
 	]
+	return current, len(all_records) - len(current)
+
+
+def _current_job_records(self: Any, job_key: str) -> list[dict[str, Any]]:
+	return _split_current_job_records(self, job_key)[0]
 
 
 def install_candidate_version_ordering(store_cls: type[Any]) -> None:
@@ -89,7 +94,7 @@ def install_candidate_version_ordering(store_cls: type[Any]) -> None:
 		return sorted(_current_job_records(self, job_key), key=sort_key, reverse=True)[:limit]
 
 	def report(self: Any, *, job_key: str, top: int = 10) -> dict[str, Any]:
-		records = _current_job_records(self, job_key)
+		records, stale_count = _split_current_job_records(self, job_key)
 		buckets = {name: 0 for name in RECOMMENDATIONS}
 		statuses = {name: 0 for name in CANDIDATE_STATUSES}
 		for record in records:
@@ -102,6 +107,7 @@ def install_candidate_version_ordering(store_cls: type[Any]) -> None:
 		return {
 			"job_key": job_key,
 			"total_candidates": len(records),
+			"stale_count": stale_count,
 			"recommendation_counts": buckets,
 			"status_counts": statuses,
 			"top_candidates": store_module.summarize_ranking(self.rank(job_key=job_key, top=top)),
