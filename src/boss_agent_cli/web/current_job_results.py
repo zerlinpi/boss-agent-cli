@@ -7,7 +7,7 @@ from contextvars import ContextVar
 from importlib.resources import files
 from typing import Any, Callable, Iterator
 
-from boss_agent_cli.recruiter_evaluation_freshness import require_current_evaluation
+from boss_agent_cli.recruiter_evaluation_freshness import get_saved_job_optional, require_current_evaluation
 from boss_agent_cli.web import controller as controller_module
 
 _INSTALLED = False
@@ -28,9 +28,8 @@ def _current_job_scope(controller: Any, job_key: str) -> Iterator[dict[str, Any]
 	if existing is not None and existing.get("store_id") == id(controller.store) and existing.get("job_key") == job_key:
 		yield existing
 		return
-	try:
-		job = controller.store.get_job(job_key)
-	except controller_module.RecruiterAIError:
+	job = get_saved_job_optional(controller.store, job_key)
+	if job is None:
 		yield None
 		return
 	scope = {
@@ -135,7 +134,7 @@ def install_current_job_result_assets(server_module: Any) -> None:
 	global _ASSETS_INSTALLED
 	if _ASSETS_INSTALLED:
 		return
-	_ASSETS_INSTALLED = True
+	_INSTALLED = True
 	application_cls = server_module.RecruiterWebApplication
 	original_asset: Callable[..., tuple[bytes, str]] = application_cls.asset
 
