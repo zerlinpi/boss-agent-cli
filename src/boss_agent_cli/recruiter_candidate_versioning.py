@@ -8,6 +8,7 @@ from typing import Any
 
 import boss_agent_cli.recruiter_ai_store as store_module
 from boss_agent_cli.recruiter_ai_models import CANDIDATE_STATUSES, RECOMMENDATIONS
+from boss_agent_cli.recruiter_candidate_identity import normalize_record_source
 from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
 from boss_agent_cli.recruiter_evaluation_freshness import get_saved_job_optional
 
@@ -56,7 +57,8 @@ def _ranking_key(record: dict[str, Any]) -> tuple[float, float, datetime, str]:
 
 def _rank_records(records: list[dict[str, Any]], top: int) -> list[dict[str, Any]]:
 	limit = max(0, min(int(top), 10_000))
-	return sorted(records, key=_ranking_key, reverse=True)[:limit]
+	ranked = sorted(records, key=_ranking_key, reverse=True)[:limit]
+	return [normalize_record_source(record) for record in ranked]
 
 
 def _split_current_job_records(self: Any, job_key: str) -> tuple[list[dict[str, Any]], int]:
