@@ -134,7 +134,7 @@ def install_current_job_result_assets(server_module: Any) -> None:
 	global _ASSETS_INSTALLED
 	if _ASSETS_INSTALLED:
 		return
-	_INSTALLED = True
+	_ASSETS_INSTALLED = True
 	application_cls = server_module.RecruiterWebApplication
 	original_asset: Callable[..., tuple[bytes, str]] = application_cls.asset
 
