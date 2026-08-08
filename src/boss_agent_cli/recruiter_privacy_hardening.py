@@ -54,7 +54,7 @@ _RESIDENTIAL_ADDRESS_RE = re.compile(
 	r"(?:家庭住址|家庭地址|现住址|现居住址|居住地址|住宅地址|详细住址|住址)"
 	r"\s*[:：]\s*[^\n,，;；]{4,160}",
 )
-_DIMENSION_SEPARATORS_RE = re.compile(r"[^a-z0-9]+")
+_DIMENSION_SEPARATORS_RE = re.compile(r"[^\w]+", re.UNICODE)
 _REQUIREMENT_SPACE_RE = re.compile(r"\s+")
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
