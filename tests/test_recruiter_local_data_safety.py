@@ -50,6 +50,29 @@ def test_direct_store_save_evaluation_applies_same_local_safety_policy(tmp_path)
 	assert "abc_12345" in payload
 
 
+def test_direct_find_unchanged_sanitizes_resume_before_fingerprinting(tmp_path) -> None:
+	store = RecruiterAIStore(tmp_path)
+	rubric = normalize_rubric()
+	raw_resume = {
+		"basic": {"name": "A"},
+		"raw_text": "5年 Java 经验；身份证 110101 19900101 1234；微信 abc_12345",
+	}
+	record = store.save_evaluation(
+		job_key="java",
+		jd_text="JD",
+		resume=raw_resume,
+		evaluation={"total_score": 80, "recommendation": "interview", "confidence": 0.8},
+		source={"type": "zhipin", "geek_id": "g1"},
+		rubric=rubric,
+	)
+
+	unchanged = store.find_unchanged(
+		job_key="java", resume=raw_resume, source={"type": "zhipin", "geek_id": "g1"}, rubric=rubric,
+	)
+	assert unchanged is not None
+	assert unchanged["id"] == record["id"]
+
+
 def test_model_text_and_resume_redaction_cover_formatted_identity_data() -> None:
 	text = "身份证 110101 19900101 1234，护照号 E12345678，家庭住址 上海市浦东新区世纪大道100号，5年 Go 经验"
 	redacted = redact_contact_text(text)
