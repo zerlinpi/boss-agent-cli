@@ -7,7 +7,7 @@ from contextvars import ContextVar
 from importlib.resources import files
 from typing import Any, Callable, Iterator
 
-from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
+from boss_agent_cli.recruiter_evaluation_freshness import require_current_evaluation
 from boss_agent_cli.web import controller as controller_module
 
 _INSTALLED = False
@@ -60,33 +60,12 @@ def _attach_stale_count(payload: dict[str, Any], scope: dict[str, Any] | None) -
 	return payload
 
 
-def _require_current_evaluation(controller: Any, evaluation_id: str) -> None:
-	record = controller.store.get_evaluation(evaluation_id)
-	job_key = str(record.get("job_key") or "")
-	if not job_key:
-		raise controller_module.WebConsoleError(
-			"STALE_EVALUATION", "评估记录缺少岗位信息，请重新筛选候选人", status=409,
-		)
+def _require_current_web_evaluation(controller: Any, evaluation_id: str) -> None:
 	try:
-		job = controller.store.get_job(job_key)
+		record = controller.store.get_evaluation(evaluation_id)
+		require_current_evaluation(controller.store, record, require_saved_job=True)
 	except controller_module.RecruiterAIError as exc:
-		raise controller_module.WebConsoleError(
-			"STALE_EVALUATION", "岗位配置已变化或不存在，请重新筛选候选人", status=409,
-		) from exc
-	job_scope = {
-		"jd_text": str(job.get("jd_text") or ""),
-		"rubric_fingerprint": str(job.get("rubric_fingerprint") or ""),
-	}
-	if not _matches_current_job(record, job_scope):
-		raise controller_module.WebConsoleError(
-			"STALE_EVALUATION", "该候选人评估基于旧 JD 或评分规则，请重新筛选后再生成草稿", status=409,
-		)
-	latest = controller.store.latest_by_candidate(job_key=job_key)
-	candidate = latest.get(canonical_candidate_key(record))
-	if not isinstance(candidate, dict) or str(candidate.get("id") or "") != evaluation_id:
-		raise controller_module.WebConsoleError(
-			"STALE_EVALUATION", "该候选人已有更新的评估版本，请使用最新结果生成草稿", status=409,
-		)
+		raise controller_module.WebConsoleError("STALE_EVALUATION", str(exc), status=409) from exc
 
 
 def install_current_job_results() -> None:
@@ -140,7 +119,7 @@ def install_current_job_results() -> None:
 	def generate_reply(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
 		evaluation_id = str(payload.get("evaluation_id") or "").strip()
 		if evaluation_id:
-			_require_current_evaluation(self, evaluation_id)
+			_require_current_web_evaluation(self, evaluation_id)
 		return original_generate_reply(self, payload)
 
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
