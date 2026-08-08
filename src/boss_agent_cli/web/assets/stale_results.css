@@ -1,0 +1,33 @@
+.stale-results-warning {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 18px;
+	margin-bottom: 18px;
+	padding: 14px 16px;
+	border: 1px solid var(--warning-border, #e7c77c);
+	border-radius: 14px;
+	background: var(--warning-bg, #fff9e8);
+}
+
+.stale-results-warning > div {
+	display: grid;
+	gap: 4px;
+}
+
+.stale-results-warning strong {
+	font-size: 14px;
+}
+
+.stale-results-warning span {
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--muted, #667085);
+}
+
+@media (max-width: 720px) {
+	.stale-results-warning {
+		align-items: stretch;
+		flex-direction: column;
+	}
+}
