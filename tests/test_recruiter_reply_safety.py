@@ -14,6 +14,12 @@ def test_reply_safety_detects_extended_protected_traits_and_offer_promises():
 	assert "employment_promise" in flags
 
 
+def test_reply_safety_detects_plain_language_hiring_commitments():
+	assert "employment_promise" in scan_reply_safety("我们决定录用你，请准备入职材料。")
+	assert "employment_promise" in scan_reply_safety("欢迎您入职，下周一到岗即可。")
+	assert "employment_promise" in scan_reply_safety("恭喜你被录取，稍后发送合同。")
+
+
 def test_reply_safety_detects_contact_exposure_and_length():
 	flags = scan_reply_safety("请联系 13800000000 或 hr@example.com" + "a" * 1200)
 	assert "contact_exposure" in flags
@@ -23,6 +29,13 @@ def test_reply_safety_detects_contact_exposure_and_length():
 def test_reply_safety_detects_qq_and_landline():
 	assert "contact_exposure" in scan_reply_safety("QQ：12345678")
 	assert "contact_exposure" in scan_reply_safety("办公电话：010-12345678")
+
+
+def test_reply_safety_detects_identity_and_residential_exposure():
+	assert "identity_exposure" in scan_reply_safety("请确认身份证 110101199001011234")
+	assert "identity_exposure" in scan_reply_safety("护照号 E12345678")
+	assert "identity_exposure" in scan_reply_safety("家庭住址：上海市浦东新区世纪大道100号")
+	assert "identity_exposure" not in scan_reply_safety("面试地址：上海市徐汇区公司会议室")
 
 
 def test_reply_safety_allows_neutral_follow_up():
