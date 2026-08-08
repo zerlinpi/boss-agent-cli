@@ -1,6 +1,7 @@
 """Public compatibility surface for recruiter AI screening workflows."""
 
 import boss_agent_cli.recruiter_ai_models as _model_module
+import boss_agent_cli.recruiter_ai_store as _store_module
 from boss_agent_cli.recruiter_contact_retention import (
 	RecruiterAIStore,
 	extract_contact_details,
@@ -22,6 +23,9 @@ install_identity_alias_sanitizer()
 install_stable_local_candidate_identity()
 install_candidate_state_retention()
 install_model_and_store_hardening(_model_module, RecruiterAIStore)
+# recruiter_ai_store imports this helper by value before the runtime hardening layer is installed.
+# Keep direct Store API calls on the same rubric contract as CLI/Web entry points.
+_store_module.normalize_rubric = _model_module.normalize_rubric
 redact_resume_for_model = _model_module.redact_resume_for_model
 
 import boss_agent_cli.recruiter_ai_evaluation as _evaluation_module  # noqa: E402
