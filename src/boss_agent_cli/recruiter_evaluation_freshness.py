@@ -7,6 +7,21 @@ from typing import Any
 from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
 from boss_agent_cli.recruiter_ai_models import RecruiterAIError
 
+_JOB_NOT_FOUND_PREFIX = "岗位配置不存在:"
+
+
+def get_saved_job_optional(store: Any, job_key: str) -> dict[str, Any] | None:
+	"""Return a saved job, but never disguise invalid/corrupt job data as ad-hoc mode."""
+	try:
+		job = store.get_job(job_key)
+	except RecruiterAIError as exc:
+		if str(exc).startswith(_JOB_NOT_FOUND_PREFIX):
+			return None
+		raise
+	if not isinstance(job, dict):
+		raise RecruiterAIError(f"岗位配置损坏: {job_key}")
+	return job
+
 
 def require_current_evaluation(
 	store: Any,
@@ -20,12 +35,9 @@ def require_current_evaluation(
 	if not evaluation_id or not job_key:
 		raise RecruiterAIError("评估记录缺少岗位或记录标识，请重新评估")
 
-	try:
-		job = store.get_job(job_key)
-	except RecruiterAIError:
-		if require_saved_job:
-			raise RecruiterAIError("岗位配置已不存在，请重新创建岗位并筛选候选人") from None
-		job = None
+	job = get_saved_job_optional(store, job_key)
+	if job is None and require_saved_job:
+		raise RecruiterAIError("岗位配置已不存在，请重新创建岗位并筛选候选人")
 
 	if isinstance(job, dict):
 		if str(record.get("jd_text") or "") != str(job.get("jd_text") or ""):
