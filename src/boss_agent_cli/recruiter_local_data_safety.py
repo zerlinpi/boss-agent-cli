@@ -75,6 +75,7 @@ def install_local_data_safety(model_module: Any, store_cls: type[Any]) -> None:
 
 	original_redact: Callable[[str], str] = model_module.redact_contact_text
 	original_redact_resume: Callable[[dict[str, Any]], dict[str, Any]] = model_module.redact_resume_for_model
+	original_find_unchanged: Callable[..., dict[str, Any] | None] = store_cls.find_unchanged
 	original_save_evaluation: Callable[..., dict[str, Any]] = store_cls.save_evaluation
 	original_save_reply: Callable[..., dict[str, Any]] = store_cls.save_reply
 
@@ -83,6 +84,12 @@ def install_local_data_safety(model_module: Any, store_cls: type[Any]) -> None:
 
 	def redact_resume_for_model(resume: dict[str, Any]) -> dict[str, Any]:
 		return sanitize_local_resume(original_redact_resume(resume))
+
+	def find_unchanged(self: Any, **kwargs: Any) -> dict[str, Any] | None:
+		resume = kwargs.get("resume")
+		if isinstance(resume, dict):
+			kwargs["resume"] = sanitize_local_resume(resume)
+		return original_find_unchanged(self, **kwargs)
 
 	def save_evaluation(self: Any, **kwargs: Any) -> dict[str, Any]:
 		resume = kwargs.get("resume")
@@ -97,5 +104,6 @@ def install_local_data_safety(model_module: Any, store_cls: type[Any]) -> None:
 
 	model_module.redact_contact_text = redact_contact_text
 	model_module.redact_resume_for_model = redact_resume_for_model
+	setattr(store_cls, "find_unchanged", find_unchanged)
 	setattr(store_cls, "save_evaluation", save_evaluation)
 	setattr(store_cls, "save_reply", save_reply)
