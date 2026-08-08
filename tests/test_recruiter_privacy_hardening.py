@@ -5,8 +5,10 @@ import pytest
 from boss_agent_cli.recruiter_ai import (
 	RecruiterAIError,
 	RecruiterAIStore,
+	normalize_resume,
 	normalize_rubric,
 	redact_contact_text,
+	redact_resume_for_model,
 	validate_evaluation,
 )
 
@@ -28,8 +30,13 @@ def test_rubric_rejects_age_generation_and_canonical_duplicate_dimensions() -> N
 		normalize_rubric({
 			"dimensions": [
 				{"name": "required_skills", "max_score": 50},
-				{"name": "Required-Skills", "max_score": 50},
+				{"name": "RequiredSkills", "max_score": 50},
 			],
+		})
+
+	with pytest.raises(RecruiterAIError, match="硬性要求归一化后不能重复"):
+		normalize_rubric({
+			"hard_requirements": ["Java", " java "],
 		})
 
 
@@ -42,13 +49,26 @@ def test_model_text_redaction_covers_vague_protected_preferences() -> None:
 	assert "5年 Java 经验" in redacted
 
 
+def test_resume_model_payload_uses_same_vague_preference_redaction() -> None:
+	resume = normalize_resume({
+		"basic": {"name": "张三"},
+		"raw_text": "年龄偏好：年轻优先；婚姻稳定优先；5年 Java 经验",
+	})
+	payload = json.dumps(redact_resume_for_model(resume), ensure_ascii=False)
+
+	assert "年龄偏好" not in payload
+	assert "年轻优先" not in payload
+	assert "婚姻稳定优先" not in payload
+	assert "5年 Java 经验" in payload
+
+
 def test_model_output_unsafe_evidence_is_removed_before_score_recomputation() -> None:
 	result = validate_evaluation(
 		{
 			"confidence": 0.9,
 			"dimensions": [
 				{
-					"name": "Required Skills",
+					"name": "RequiredSkills",
 					"score": 100,
 					"max_score": 100,
 					"reason": "年龄较小，适合团队",
@@ -74,7 +94,10 @@ def test_model_output_unsafe_evidence_is_removed_before_score_recomputation() ->
 	assert result["next_questions"] == ["请介绍最近的 Java 项目"]
 	assert result["recommendation"] == "manual_review"
 	assert result["model_output_sanitized"] is True
-	assert result["model_output_safety_flags"] == ["protected_or_contact_content"]
+	assert result["model_output_safety_flags"] == [
+		"protected_or_contact_content",
+		"unexpected_hard_requirement",
+	]
 
 
 def test_safe_model_output_keeps_evidence_and_score() -> None:
