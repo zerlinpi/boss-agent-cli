@@ -6,6 +6,8 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
+import boss_agent_cli.recruiter_ai_store as store_module
+from boss_agent_cli.recruiter_ai_models import CANDIDATE_STATUSES, RECOMMENDATIONS, RecruiterAIError
 from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
 
 _MIN_UTC = datetime.min.replace(tzinfo=timezone.utc)
@@ -38,8 +40,24 @@ def _finite_score(value: Any) -> float:
 	return number if math.isfinite(number) else -1.0
 
 
+def _current_job_records(self: Any, job_key: str) -> list[dict[str, Any]]:
+	records = list(self.latest_by_candidate(job_key=job_key).values())
+	try:
+		job = self.get_job(job_key)
+	except RecruiterAIError:
+		# Ad-hoc CLI evaluations can intentionally exist without a persisted job profile.
+		return records
+	jd_text = str(job.get("jd_text") or "")
+	rubric_fingerprint = str(job.get("rubric_fingerprint") or "")
+	return [
+		record for record in records
+		if str(record.get("jd_text") or "") == jd_text
+		and str(record.get("rubric_fingerprint") or "") == rubric_fingerprint
+	]
+
+
 def install_candidate_version_ordering(store_cls: type[Any]) -> None:
-	"""Select and rank candidate versions by actual UTC time, not ISO string ordering."""
+	"""Select latest versions by UTC and keep current rankings on the saved job configuration."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -68,7 +86,28 @@ def install_candidate_version_ordering(store_cls: type[Any]) -> None:
 			)
 
 		limit = max(0, min(int(top), 10_000))
-		return sorted(self.latest_by_candidate(job_key=job_key).values(), key=sort_key, reverse=True)[:limit]
+		return sorted(_current_job_records(self, job_key), key=sort_key, reverse=True)[:limit]
+
+	def report(self: Any, *, job_key: str, top: int = 10) -> dict[str, Any]:
+		records = _current_job_records(self, job_key)
+		buckets = {name: 0 for name in RECOMMENDATIONS}
+		statuses = {name: 0 for name in CANDIDATE_STATUSES}
+		for record in records:
+			evaluation = record.get("evaluation")
+			if isinstance(evaluation, dict) and evaluation.get("recommendation") in buckets:
+				buckets[str(evaluation["recommendation"])] += 1
+			status = str(record.get("status", "new"))
+			if status in statuses:
+				statuses[status] += 1
+		return {
+			"job_key": job_key,
+			"total_candidates": len(records),
+			"recommendation_counts": buckets,
+			"status_counts": statuses,
+			"top_candidates": store_module.summarize_ranking(self.rank(job_key=job_key, top=top)),
+			"human_review_required": True,
+		}
 
 	setattr(store_cls, "latest_by_candidate", latest_by_candidate)
 	setattr(store_cls, "rank", rank)
+	setattr(store_cls, "report", report)
