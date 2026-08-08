@@ -54,12 +54,14 @@ _RESIDENTIAL_ADDRESS_RE = re.compile(
 	r"(?:家庭住址|家庭地址|现住址|现居住址|居住地址|住宅地址|详细住址|住址)"
 	r"\s*[:：]\s*[^\n,，;；]{4,160}",
 )
-_DIMENSION_KEY_RE = re.compile(r"[\s\-]+")
+_DIMENSION_SEPARATORS_RE = re.compile(r"[^a-z0-9]+")
 _REQUIREMENT_SPACE_RE = re.compile(r"\s+")
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 def _dimension_key(value: Any) -> str:
-	return _DIMENSION_KEY_RE.sub("_", str(value)).strip("_").casefold()
+	text = _CAMEL_BOUNDARY_RE.sub("_", str(value)).casefold()
+	return _DIMENSION_SEPARATORS_RE.sub("_", text).strip("_")
 
 
 def _requirement_key(value: Any) -> str:
@@ -97,12 +99,25 @@ def _rubric_texts(payload: dict[str, Any]) -> list[tuple[str, str]]:
 	return items
 
 
+def _redact_nested_strings(value: Any, sanitizer: Callable[[str], str]) -> Any:
+	if isinstance(value, dict):
+		for key in list(value):
+			value[key] = _redact_nested_strings(value[key], sanitizer)
+		return value
+	if isinstance(value, list):
+		for index, item in enumerate(value):
+			value[index] = _redact_nested_strings(item, sanitizer)
+		return value
+	return sanitizer(value) if isinstance(value, str) else value
+
+
 def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -> None:
 	"""Harden model input, rubric validation, and locally persisted conversations."""
 	if getattr(model_module, "_recruiter_privacy_hardening_installed", False):
 		return
 
 	original_redact: Callable[[str], str] = model_module.redact_contact_text
+	original_redact_resume: Callable[[dict[str, Any]], dict[str, Any]] = model_module.redact_resume_for_model
 	original_normalize_rubric: Callable[[dict[str, Any] | None], dict[str, Any]] = model_module.normalize_rubric
 	original_save_reply: Callable[..., dict[str, Any]] = store_cls.save_reply
 
@@ -111,6 +126,10 @@ def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -
 		for pattern, replacement in _VAGUE_PROTECTED_TEXT_PATTERNS:
 			redacted = pattern.sub(replacement, redacted)
 		return redacted
+
+	def hardened_redact_resume(resume: dict[str, Any]) -> dict[str, Any]:
+		redacted = original_redact_resume(resume)
+		return cast("dict[str, Any]", _redact_nested_strings(redacted, hardened_redact))
 
 	def hardened_normalize_rubric(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 		raw = payload or {}
@@ -122,16 +141,28 @@ def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -
 
 		dimensions = raw.get("dimensions")
 		if isinstance(dimensions, list):
-			seen: set[str] = set()
+			seen_dimensions: set[str] = set()
 			for item in dimensions:
 				if not isinstance(item, dict):
 					continue
 				key = _dimension_key(item.get("name", ""))
 				if not key:
 					continue
-				if key in seen:
+				if key in seen_dimensions:
 					raise model_module.RecruiterAIError("评分维度 name 归一化后不能重复")
-				seen.add(key)
+				seen_dimensions.add(key)
+
+		hard_requirements = raw.get("hard_requirements")
+		if isinstance(hard_requirements, list):
+			seen_requirements: set[str] = set()
+			for item in hard_requirements:
+				requirement = item.get("requirement", "") if isinstance(item, dict) else item
+				key = _requirement_key(requirement)
+				if not key:
+					continue
+				if key in seen_requirements:
+					raise model_module.RecruiterAIError("硬性要求归一化后不能重复")
+				seen_requirements.add(key)
 
 		return original_normalize_rubric(raw)
 
@@ -149,6 +180,7 @@ def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -
 		return record
 
 	model_module.redact_contact_text = hardened_redact
+	model_module.redact_resume_for_model = hardened_redact_resume
 	model_module.normalize_rubric = hardened_normalize_rubric
 	setattr(store_cls, "save_reply", hardened_save_reply)
 	setattr(model_module, "_recruiter_privacy_hardening_installed", True)
@@ -159,6 +191,9 @@ def install_evaluation_output_hardening(evaluation_module: Any, model_module: An
 	if getattr(evaluation_module, "_recruiter_output_hardening_installed", False):
 		return
 	original_validate: Callable[..., dict[str, Any]] = evaluation_module.validate_evaluation
+
+	# Keep evaluation matching aligned with rubric duplicate detection.
+	evaluation_module._dimension_key = _dimension_key
 
 	def sanitize_text(value: Any) -> tuple[str, bool]:
 		text = str(value).strip()
@@ -189,7 +224,7 @@ def install_evaluation_output_hardening(evaluation_module: Any, model_module: An
 	) -> dict[str, Any]:
 		normalized_rubric = model_module.normalize_rubric(rubric)
 		clean = cast("dict[str, Any]", model_module.json_clone(payload))
-		changed = False
+		flags: set[str] = set()
 
 		for dimension in clean.get("dimensions", []) if isinstance(clean.get("dimensions"), list) else []:
 			if not isinstance(dimension, dict):
@@ -198,7 +233,8 @@ def install_evaluation_output_hardening(evaluation_module: Any, model_module: An
 			dimension["evidence"] = evidence
 			reason, reason_changed = sanitize_text(dimension.get("reason", ""))
 			dimension["reason"] = reason
-			changed = changed or evidence_changed or reason_changed
+			if evidence_changed or reason_changed:
+				flags.add("protected_or_contact_content")
 
 		configured_requirements = {
 			_requirement_key(item.get("requirement", ""))
@@ -211,28 +247,31 @@ def install_evaluation_output_hardening(evaluation_module: Any, model_module: An
 				continue
 			key = _requirement_key(item.get("requirement", ""))
 			if not key or key not in configured_requirements:
-				changed = True
+				flags.add("unexpected_hard_requirement")
 				continue
 			evidence, evidence_changed = safe_list(item.get("evidence", []))
 			item["evidence"] = evidence
-			changed = changed or evidence_changed
+			if evidence_changed:
+				flags.add("protected_or_contact_content")
 			clean_hard.append(item)
 		clean["hard_requirements"] = clean_hard
 
 		for key in ("strengths", "concerns", "next_questions"):
 			items, items_changed = safe_list(clean.get(key, []), limit=20)
 			clean[key] = items
-			changed = changed or items_changed
+			if items_changed:
+				flags.add("protected_or_contact_content")
 
 		summary, summary_changed = sanitize_text(clean.get("summary", ""))
 		clean["summary"] = summary
-		changed = changed or summary_changed
+		if summary_changed:
+			flags.add("protected_or_contact_content")
 
 		result = original_validate(clean, normalized_rubric)
-		if changed:
+		if flags:
 			result["recommendation"] = "manual_review"
 			result["model_output_sanitized"] = True
-			result["model_output_safety_flags"] = ["protected_or_contact_content"]
+			result["model_output_safety_flags"] = sorted(flags)
 		return result
 
 	evaluation_module.validate_evaluation = hardened_validate
