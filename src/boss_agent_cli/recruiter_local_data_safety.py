@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, cast
 
+from boss_agent_cli.recruiter_ai_store import _safe_storage_key
+
 _INSTALLED = False
 _FIELD_NORMALIZER = re.compile(r"[^a-z0-9\u4e00-\u9fff]+")
 _CN_ID_RE = re.compile(
@@ -33,6 +35,10 @@ _DROP_FIELDS = {
 
 def _canonical_field(value: Any) -> str:
 	return _FIELD_NORMALIZER.sub("", str(value).casefold())
+
+
+def _validated_job_key(value: Any) -> str:
+	return _safe_storage_key(str(value or ""), label="job_key", max_length=128)
 
 
 def contains_high_risk_identity_text(text: str) -> bool:
@@ -86,12 +92,14 @@ def install_local_data_safety(model_module: Any, store_cls: type[Any]) -> None:
 		return sanitize_local_resume(original_redact_resume(resume))
 
 	def find_unchanged(self: Any, **kwargs: Any) -> dict[str, Any] | None:
+		kwargs["job_key"] = _validated_job_key(kwargs.get("job_key"))
 		resume = kwargs.get("resume")
 		if isinstance(resume, dict):
 			kwargs["resume"] = sanitize_local_resume(resume)
 		return original_find_unchanged(self, **kwargs)
 
 	def save_evaluation(self: Any, **kwargs: Any) -> dict[str, Any]:
+		kwargs["job_key"] = _validated_job_key(kwargs.get("job_key"))
 		resume = kwargs.get("resume")
 		if isinstance(resume, dict):
 			kwargs["resume"] = sanitize_local_resume(resume)
