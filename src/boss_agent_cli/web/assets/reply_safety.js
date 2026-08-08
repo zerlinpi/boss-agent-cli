@@ -4,6 +4,7 @@ function replySafetyLabel(flag) {
 		reply_too_long: '回复过长',
 		protected_attribute: '涉及受保护属性',
 		employment_promise: '包含录用承诺',
+		identity_exposure: '包含身份证明或居住地址',
 		contact_exposure: '包含联系方式',
 	})[flag] || flag;
 }
