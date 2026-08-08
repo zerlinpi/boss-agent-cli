@@ -12,6 +12,7 @@ from boss_agent_cli.display import handle_error_output
 from boss_agent_cli.recruiter_ai import (
 	RecruiterAIError,
 	RecruiterAIStore,
+	candidate_key,
 	evaluate_resume,
 	generate_reply_draft,
 	normalize_resume,
@@ -19,9 +20,12 @@ from boss_agent_cli.recruiter_ai import (
 	read_json_input,
 	read_text_input,
 	recommended_reply_intent,
+	resume_fingerprint,
+	rubric_fingerprint,
 )
 
 _MAX_RANK_FETCH = 10_000
+_CLI_LATEST_CACHE_ATTR = "_boss_cli_latest_candidate_cache"
 
 
 class AIConfigurationError(AIServiceError):
@@ -129,6 +133,61 @@ def resolve_job(
 	return jd_text, load_rubric(rubric_input) if rubric_input else normalize_rubric(rubric)
 
 
+def _evaluation_directory_mtime(store: RecruiterAIStore) -> int:
+	try:
+		return store.evaluations_dir.stat().st_mtime_ns
+	except OSError:
+		return -1
+
+
+def _latest_candidate_index(store: RecruiterAIStore, job_key: str) -> dict[str, dict[str, Any]]:
+	cache = getattr(store, _CLI_LATEST_CACHE_ATTR, None)
+	if not isinstance(cache, dict):
+		cache = {}
+		setattr(store, _CLI_LATEST_CACHE_ATTR, cache)
+	mtime = _evaluation_directory_mtime(store)
+	entry = cache.get(job_key)
+	if isinstance(entry, dict) and entry.get("mtime") == mtime and isinstance(entry.get("items"), dict):
+		return entry["items"]
+	items = store.latest_by_candidate(job_key=job_key)
+	cache[job_key] = {"mtime": mtime, "items": items}
+	return items
+
+
+def _cached_unchanged(
+	store: RecruiterAIStore,
+	*,
+	job_key: str,
+	jd_text: str,
+	resume: dict[str, Any],
+	source: dict[str, Any],
+	rubric: dict[str, Any],
+) -> dict[str, Any] | None:
+	record = _latest_candidate_index(store, job_key).get(candidate_key(resume, source))
+	if record is None:
+		return None
+	if str(record.get("jd_text") or "") != jd_text:
+		return None
+	if record.get("resume_fingerprint") != resume_fingerprint(resume):
+		return None
+	if record.get("rubric_fingerprint") != rubric_fingerprint(rubric):
+		return None
+	return record
+
+
+def _remember_evaluation(store: RecruiterAIStore, job_key: str, record: dict[str, Any]) -> None:
+	cache = getattr(store, _CLI_LATEST_CACHE_ATTR, None)
+	if not isinstance(cache, dict):
+		return
+	entry = cache.get(job_key)
+	if not isinstance(entry, dict) or not isinstance(entry.get("items"), dict):
+		return
+	key = str(record.get("candidate_key") or "")
+	if key:
+		entry["items"][key] = record
+	entry["mtime"] = _evaluation_directory_mtime(store)
+
+
 def evaluate_local(
 	*,
 	service: ChatService,
@@ -143,8 +202,13 @@ def evaluate_local(
 ) -> dict[str, Any]:
 	resume = normalize_resume(resume_payload)
 	if save and not force:
-		existing = store.find_unchanged(
-			job_key=job_key, resume=resume, source=source, rubric=rubric,
+		existing = _cached_unchanged(
+			store,
+			job_key=job_key,
+			jd_text=jd_text,
+			resume=resume,
+			source=source,
+			rubric=rubric,
 		)
 		if existing is not None:
 			return {**existing, "saved": True, "skipped": True, "skip_reason": "unchanged"}
@@ -158,6 +222,7 @@ def evaluate_local(
 		job_key=job_key, jd_text=jd_text, resume=resume,
 		evaluation=evaluation, source=source, rubric=rubric,
 	)
+	_remember_evaluation(store, job_key, record)
 	record.update({"saved": True, "skipped": False})
 	return record
 
