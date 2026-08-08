@@ -56,3 +56,24 @@ def test_latest_candidate_accepts_z_and_naive_legacy_timestamps(tmp_path) -> Non
 	store._write(store.evaluations_dir / f"{newer['id']}.json", newer)
 
 	assert next(iter(store.latest_by_candidate(job_key="java").values()))["id"] == newer["id"]
+
+
+def test_rank_uses_absolute_time_for_equal_score_tie_breaks(tmp_path) -> None:
+	store = RecruiterAIStore(tmp_path)
+	rubric = normalize_rubric()
+	older = store.save_evaluation(
+		job_key="java", jd_text="JD", resume={"basic": {"name": "A"}},
+		evaluation={"total_score": 80, "recommendation": "interview", "confidence": 0.8},
+		source={"type": "zhipin", "geek_id": "g1"}, rubric=rubric,
+	)
+	newer = store.save_evaluation(
+		job_key="java", jd_text="JD", resume={"basic": {"name": "B"}},
+		evaluation={"total_score": 80, "recommendation": "interview", "confidence": 0.8},
+		source={"type": "zhipin", "geek_id": "g2"}, rubric=rubric,
+	)
+	older["created_at"] = "2026-08-08T12:00:00+08:00"  # 04:00 UTC
+	newer["created_at"] = "2026-08-08T05:00:00+00:00"
+	store._write(store.evaluations_dir / f"{older['id']}.json", older)
+	store._write(store.evaluations_dir / f"{newer['id']}.json", newer)
+
+	assert [record["id"] for record in store.rank(job_key="java", top=2)] == [newer["id"], older["id"]]
