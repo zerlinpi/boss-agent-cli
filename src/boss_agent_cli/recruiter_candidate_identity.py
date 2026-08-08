@@ -1,4 +1,4 @@
-"""Stable candidate identity for recruiter workflows."""
+"""Stable candidate identity and legacy source normalization for recruiter workflows."""
 
 from __future__ import annotations
 
@@ -11,6 +11,30 @@ import boss_agent_cli.recruiter_ai_store as store_module
 
 _INSTALLED = False
 _WINDOWS_ABSOLUTE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def normalize_friend_id(value: Any) -> int | None:
+	"""Return the positive integer friend id required by recruiter chat APIs."""
+	if isinstance(value, bool) or value in (None, ""):
+		return None
+	try:
+		parsed = int(str(value).strip())
+	except (TypeError, ValueError):
+		return None
+	return parsed if parsed > 0 else None
+
+
+def normalize_record_source(record: dict[str, Any]) -> dict[str, Any]:
+	"""Normalize legacy source references without mutating persisted history."""
+	source = record.get("source")
+	if not isinstance(source, dict):
+		return record
+	clean_source = dict(source)
+	if "friend_id" in clean_source:
+		clean_source["friend_id"] = normalize_friend_id(clean_source.get("friend_id"))
+	clean = dict(record)
+	clean["source"] = clean_source
+	return clean
 
 
 def _normalized_source_path(value: Any) -> str:
