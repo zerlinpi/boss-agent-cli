@@ -11,13 +11,22 @@ from boss_agent_cli.recruiter_contact_retention import (
 from boss_agent_cli.recruiter_candidate_identity import install_stable_local_candidate_identity
 from boss_agent_cli.recruiter_candidate_state import install_candidate_state_retention
 from boss_agent_cli.recruiter_identity_safety import install_identity_alias_sanitizer
+from boss_agent_cli.recruiter_privacy_hardening import (
+	install_evaluation_output_hardening,
+	install_model_and_store_hardening,
+)
 
 # Install before recruiter_ai_evaluation imports model helpers by value.
 install_model_sanitizer()
 install_identity_alias_sanitizer()
 install_stable_local_candidate_identity()
 install_candidate_state_retention()
+install_model_and_store_hardening(_model_module, RecruiterAIStore)
 redact_resume_for_model = _model_module.redact_resume_for_model
+
+import boss_agent_cli.recruiter_ai_evaluation as _evaluation_module  # noqa: E402
+
+install_evaluation_output_hardening(_evaluation_module, _model_module)
 
 from boss_agent_cli.recruiter_ai_evaluation import (  # noqa: E402
 	build_evaluation_messages,
@@ -50,7 +59,7 @@ from boss_agent_cli.recruiter_ai_models import (  # noqa: E402
 )
 from boss_agent_cli.recruiter_ai_store import summarize_ranking  # noqa: E402
 
-redact_contact_text = redact_text_for_model
+redact_contact_text = _model_module.redact_contact_text
 
 __all__ = [
 	"CANDIDATE_STATUSES",
