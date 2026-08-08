@@ -6,16 +6,18 @@ from typing import Any
 
 from boss_agent_cli.recruiter_candidate_state import canonical_candidate_key
 from boss_agent_cli.recruiter_ai_models import RecruiterAIError
+from boss_agent_cli.recruiter_ai_store import _safe_storage_key
 
 
 def get_saved_job_optional(store: Any, job_key: str) -> dict[str, Any] | None:
 	"""Return a saved job, but never disguise invalid/corrupt job data as ad-hoc mode."""
-	path = store.jobs_dir / f"{job_key}.json"
-	if not path.exists():
+	safe_key = _safe_storage_key(job_key, label="job_key", max_length=128)
+	path = store.jobs_dir / f"{safe_key}.json"
+	if not path.is_file():
 		return None
-	job = store.get_job(job_key)
+	job = store.get_job(safe_key)
 	if not isinstance(job, dict):
-		raise RecruiterAIError(f"岗位配置损坏: {job_key}")
+		raise RecruiterAIError(f"岗位配置损坏: {safe_key}")
 	return job
 
 
