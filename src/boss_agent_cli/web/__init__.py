@@ -12,6 +12,7 @@ from boss_agent_cli.web.current_job_results import (
 )
 from boss_agent_cli.web.deletion_serialization import install_deletion_serialization
 from boss_agent_cli.web.export_security import install_export_security
+from boss_agent_cli.web.http_input_safety import install_http_input_safety
 from boss_agent_cli.web.integrity import install_web_integrity
 from boss_agent_cli.web.job_analysis_safety import install_job_analysis_safety
 from boss_agent_cli.web.lifecycle import install_controller_extensions, install_server_extensions
@@ -43,6 +44,7 @@ from boss_agent_cli.web import server as _server  # noqa: E402
 install_server_extensions(_server)
 install_deletion_serialization(_server)
 install_server_reliability(_server)
+install_http_input_safety(_server)
 install_write_input_safety(_server)
 install_web_integrity(_server)
 install_reply_assets(_server)
