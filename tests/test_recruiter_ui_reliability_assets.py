@@ -24,5 +24,9 @@ def test_recruiter_app_asset_contains_write_deduplication_keyboard_freshness_and
 		assert "candidate-freshness-warning" in text
 		assert "当前查看的是历史评估" in text
 		assert "打开最新评估" in text
+		assert "candidate-compare-title" in text
+		assert "aria-modal" in text
+		assert "comparisonReturnFocus" in text
+		assert "关闭候选人对比" in text
 	finally:
 		application.tasks.close()
