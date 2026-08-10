@@ -15,6 +15,11 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 _LOCK_TIMEOUT = 30
+_STALE_LOCK_SECONDS = 300
+
+
+class RefreshLockBusy(RuntimeError):
+	"""Raised when another live process still owns the token refresh lock."""
 
 
 def _chmod_private(path: Path) -> None:
@@ -160,20 +165,31 @@ class TokenStore:
 		"""删除 session.enc 文件（保留 salt 供下次登录复用）"""
 		self._session_path.unlink(missing_ok=True)
 
+	def _refresh_lock_is_stale(self) -> bool:
+		try:
+			age = time.time() - self._lock_path.stat().st_mtime
+		except FileNotFoundError:
+			return True
+		except OSError:
+			return False
+		return age >= _STALE_LOCK_SECONDS
+
 	@contextmanager
 	def refresh_lock(self) -> Iterator[None]:
-		"""原子文件锁：使用 O_CREAT|O_EXCL 避免 TOCTOU 竞态条件。"""
-		deadline = time.time() + _LOCK_TIMEOUT
+		"""Acquire refresh lock without stealing it from a still-running refresh operation."""
+		deadline = time.monotonic() + _LOCK_TIMEOUT
 		fd = None
 		while True:
 			try:
 				fd = os.open(str(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-				break  # 成功获取锁
+				break
 			except FileExistsError:
-				if time.time() > deadline:
-					# 超时：锁可能是残留的，强制释放
-					self._lock_path.unlink(missing_ok=True)
-					continue
+				if time.monotonic() >= deadline:
+					if self._refresh_lock_is_stale():
+						self._lock_path.unlink(missing_ok=True)
+						deadline = time.monotonic() + _LOCK_TIMEOUT
+						continue
+					raise RefreshLockBusy("已有登录态刷新任务正在运行，请稍后重试")
 				time.sleep(0.5)
 		try:
 			if fd is not None:
