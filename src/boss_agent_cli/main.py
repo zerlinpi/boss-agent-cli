@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from collections.abc import Sequence
 from typing import Any
@@ -46,6 +47,22 @@ class BossCliGroup(click.Group):
 			return None
 
 
+def _parse_delay_range(value: str) -> tuple[float, float]:
+	"""Parse a finite, non-negative min-max request delay."""
+	try:
+		low_text, high_text = value.split("-", 1)
+		low = float(low_text)
+		high = float(high_text)
+	except ValueError as exc:
+		raise click.BadParameter("delay must be a range like 1.5-3.0", param_hint="--delay") from exc
+	if not math.isfinite(low) or not math.isfinite(high) or low < 0 or high < 0 or low > high:
+		raise click.BadParameter(
+			"delay must contain finite non-negative numbers with min <= max, e.g. 1.5-3.0",
+			param_hint="--delay",
+		)
+	return low, high
+
+
 @click.group(name="boss", cls=BossCliGroup, context_settings={"allow_interspersed_args": False})
 @click.version_option(version=__version__, prog_name="boss")
 @click.option("--data-dir", default="~/.boss-agent", help="数据存储目录")
@@ -64,18 +81,7 @@ def cli(ctx: click.Context, data_dir: str, delay: str | None, cdp_url: str | Non
 	ctx.obj["json_output"] = json_output
 
 	cfg = load_config(resolved_dir / "config.json")
-
-	if delay:
-		try:
-			low, high = delay.split("-", 1)
-			ctx.obj["delay"] = (float(low), float(high))
-		except ValueError as exc:
-			raise click.BadParameter(
-				"delay must be a range like 1.5-3.0",
-				param_hint="--delay",
-			) from exc
-	else:
-		ctx.obj["delay"] = tuple(cfg["request_delay"])
+	ctx.obj["delay"] = _parse_delay_range(delay) if delay else tuple(cfg["request_delay"])
 
 	level = log_level or cfg["log_level"]
 	ctx.obj["log_level"] = level
