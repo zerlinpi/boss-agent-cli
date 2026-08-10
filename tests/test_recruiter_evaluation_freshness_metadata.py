@@ -47,6 +47,42 @@ def test_old_jd_evaluation_is_explainably_stale(tmp_path) -> None:
 	assert freshness["is_current"] is False
 	assert "旧 JD" in freshness["reason"]
 	assert freshness["job_current"] is False
+	assert freshness["version_current"] is True
+	assert freshness["latest_evaluation_id"] == record["id"]
+
+
+def test_old_job_evaluation_still_points_to_existing_newer_version(tmp_path) -> None:
+	store = RecruiterAIStore(tmp_path)
+	rubric = normalize_rubric()
+	_save_job(store, "java", "Java JD v1", rubric)
+	old = _save_eval(store, "java", "Java JD v1", rubric, score=70)
+	_save_job(store, "java", "Java JD v2", rubric)
+	latest = _save_eval(store, "java", "Java JD v2", rubric, score=90)
+
+	freshness = evaluation_freshness(store, old, require_saved_job=True)
+	assert freshness["is_current"] is False
+	assert "旧 JD" in freshness["reason"]
+	assert freshness["version_current"] is False
+	assert freshness["latest_evaluation_id"] == latest["id"]
+
+
+def test_old_rubric_evaluation_is_explainably_stale(tmp_path) -> None:
+	store = RecruiterAIStore(tmp_path)
+	rubric_v1 = normalize_rubric()
+	rubric_v2 = normalize_rubric({
+		"dimensions": [
+			{"name": "required_skills", "max_score": 60},
+			{"name": "relevant_experience", "max_score": 40},
+		]
+	})
+	_save_job(store, "java", "Java JD", rubric_v1)
+	record = _save_eval(store, "java", "Java JD", rubric_v1)
+	_save_job(store, "java", "Java JD", rubric_v2)
+
+	freshness = evaluation_freshness(store, record, require_saved_job=True)
+	assert freshness["is_current"] is False
+	assert "旧评分规则" in freshness["reason"]
+	assert freshness["job_current"] is False
 
 
 def test_superseded_evaluation_points_to_latest_version(tmp_path) -> None:
