@@ -6,11 +6,7 @@ from boss_agent_cli.output import emit_error, emit_success
 
 
 def _classify_login_error(exc: Exception, ctx: click.Context) -> dict[str, object]:
-	"""Return a user-facing, redacted login error envelope payload.
-
-	The login flow intentionally remains unchanged; this helper only turns broad
-	Cookie/CDP/QR/browser failures into actionable CLI diagnostics.
-	"""
+	"""Return a user-facing, redacted login error envelope payload."""
 	raw_message = str(exc) or exc.__class__.__name__
 	message = raw_message.lower()
 	recovery_action = login_action_for_ctx(ctx)
@@ -31,7 +27,7 @@ def _classify_login_error(exc: Exception, ctx: click.Context) -> dict[str, objec
 			"LOGIN_TIMEOUT",
 			f"登录等待超时: {raw_message}",
 			[
-				"确认二维码已完成扫码并在网页端授权登录",
+				"确认已在弹出的浏览器或 CDP Chrome 中完成扫码并授权登录",
 				"网络较慢时可追加 --timeout 180 或更长时间",
 				"如已打开本机 Chrome，可先运行 boss-chrome 后再重试登录",
 			],
@@ -55,7 +51,7 @@ def _classify_login_error(exc: Exception, ctx: click.Context) -> dict[str, objec
 			f"Chrome 调试连接不可用: {raw_message}",
 			[
 				"运行 boss-chrome 启动带调试端口的 Chrome",
-				"或去掉 --cdp，让命令自动尝试 Cookie / QR 登录降级链路",
+				"或去掉 --cdp，让命令自动尝试 Cookie / 可见浏览器登录降级链路",
 				"确认 --cdp-url 指向可访问的 Chrome DevTools 地址",
 			],
 		)
@@ -110,7 +106,7 @@ def _classify_login_error(exc: Exception, ctx: click.Context) -> dict[str, objec
 @click.option("--cdp", is_flag=True, default=False, help="强制 CDP 模式（跳过 Cookie 提取，CDP 不可用直接报错）")
 @click.pass_context
 def login_cmd(ctx: click.Context, timeout: int, cookie_source: str | None, cdp: bool) -> None:
-	"""登录当前招聘平台（按平台走对应的 Cookie / CDP / 浏览器降级链路）"""
+	"""登录当前招聘平台（按平台走对应的 Cookie / CDP / 可见浏览器降级链路）"""
 	data_dir = ctx.obj["data_dir"]
 	logger = ctx.obj["logger"]
 	cdp_url = ctx.obj.get("cdp_url")
