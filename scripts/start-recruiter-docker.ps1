@@ -44,6 +44,13 @@ function Test-RecruiterWorkspace([string]$Address) {
 Write-Host ''
 Write-Host '=== BOSS Recruit AI - Docker One Click ===' -ForegroundColor Cyan
 Write-Host "Web address: $Url" -ForegroundColor DarkGray
+if ([string]::IsNullOrWhiteSpace($env:BOSS_CDP_URL)) {
+    Write-Warning 'BOSS interactive login is not available inside Docker without a container-reachable BOSS_CDP_URL.'
+    Write-Host 'Local resume upload, AI screening, ranking, Kanban, and saved data remain available.' -ForegroundColor DarkGray
+    Write-Host 'For the simplest BOSS browser login on Windows, use start-recruiter-web.bat instead.' -ForegroundColor DarkGray
+} else {
+    Write-Host "BOSS CDP endpoint: $($env:BOSS_CDP_URL)" -ForegroundColor DarkGray
+}
 
 if (Test-RecruiterWorkspace $Url) {
     Write-Host "Recruiter workspace is already running: $Url" -ForegroundColor Green
