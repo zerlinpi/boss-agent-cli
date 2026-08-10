@@ -33,9 +33,41 @@ def test_local_ai_provider_can_target_docker_host(tmp_path, monkeypatch) -> None
 	assert store.get_base_url() == "http://host.docker.internal:8000/v1"
 
 
+def test_saved_loopback_local_ai_url_is_rewritten_in_docker(tmp_path, monkeypatch) -> None:
+	monkeypatch.setenv("BOSS_AGENT_MACHINE_ID", "test-machine")
+	monkeypatch.setenv("BOSS_LOCAL_AI_HOST", "host.docker.internal")
+	store = AIConfigStore(tmp_path)
+
+	store.save_config(ai_provider="ollama", ai_base_url="http://localhost:11434/v1")
+	assert store.get_base_url() == "http://host.docker.internal:11434/v1"
+
+	store.save_config(ai_provider="vllm", ai_base_url="http://127.0.0.1:9000/v1")
+	assert store.get_base_url() == "http://host.docker.internal:9000/v1"
+
+
+def test_explicit_remote_local_ai_url_is_not_rewritten(tmp_path, monkeypatch) -> None:
+	monkeypatch.setenv("BOSS_AGENT_MACHINE_ID", "test-machine")
+	monkeypatch.setenv("BOSS_LOCAL_AI_HOST", "host.docker.internal")
+	store = AIConfigStore(tmp_path)
+	store.save_config(ai_provider="ollama", ai_base_url="http://192.168.1.50:11434/v1")
+
+	assert store.get_base_url() == "http://192.168.1.50:11434/v1"
+
+
 def test_malformed_provider_value_does_not_break_bootstrap_resolution(tmp_path, monkeypatch) -> None:
 	monkeypatch.setenv("BOSS_AGENT_MACHINE_ID", "test-machine")
 	store = AIConfigStore(tmp_path)
 	store._config_path.write_text(json.dumps({"ai_provider": ["ollama"]}), encoding="utf-8")
 
 	assert store.get_base_url() is None
+
+
+def test_malformed_base_url_value_does_not_break_bootstrap_resolution(tmp_path, monkeypatch) -> None:
+	monkeypatch.setenv("BOSS_AGENT_MACHINE_ID", "test-machine")
+	store = AIConfigStore(tmp_path)
+	store._config_path.write_text(
+		json.dumps({"ai_provider": "ollama", "ai_base_url": ["http://localhost:11434/v1"]}),
+		encoding="utf-8",
+	)
+
+	assert store.get_base_url() == "http://localhost:11434/v1"
