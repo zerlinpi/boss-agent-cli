@@ -18,6 +18,7 @@ from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleErro
 from boss_agent_cli.web.tasks import TaskManager
 
 MAX_JSON_BODY = 64 * 1024 * 1024
+_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _ASSET_TYPES = {
 	"index.html": "text/html; charset=utf-8",
 	"app.js": "text/javascript; charset=utf-8",
@@ -152,6 +153,8 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 	server_version = "BossRecruiterWeb/2.0"
 
 	def do_GET(self) -> None:  # noqa: N802
+		if not self._require_loopback_host():
+			return
 		parsed = urlparse(self.path)
 		assets = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}
 		if parsed.path in assets:
@@ -174,6 +177,8 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 			self._send_error(WebConsoleError("INTERNAL_ERROR", str(exc), status=500))
 
 	def do_POST(self) -> None:  # noqa: N802
+		if not self._require_loopback_host():
+			return
 		parsed = urlparse(self.path)
 		if not parsed.path.startswith("/api/"):
 			self._send_error(WebConsoleError("NOT_FOUND", "接口不存在", status=404))
@@ -190,6 +195,17 @@ class RecruiterRequestHandler(BaseHTTPRequestHandler):
 			self._send_error(WebConsoleError("INVALID_JSON", str(exc), status=400))
 		except Exception as exc:
 			self._send_error(WebConsoleError("INTERNAL_ERROR", str(exc), status=500))
+
+	def _require_loopback_host(self) -> bool:
+		raw_host = self.headers.get("Host", "").strip()
+		try:
+			host = urlparse(f"//{raw_host}").hostname
+		except ValueError:
+			host = None
+		if host is not None and host.casefold() in _ALLOWED_HOSTS:
+			return True
+		self._send_error(WebConsoleError("INVALID_HOST", "本地控制台拒绝非回环 Host 请求", status=421))
+		return False
 
 	def _require_authorized(self) -> bool:
 		if self.application.authorized(self):
