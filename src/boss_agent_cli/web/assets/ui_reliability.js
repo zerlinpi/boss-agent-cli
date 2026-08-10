@@ -3,6 +3,7 @@
 	const MAX_RECRUITER_JSON_CHARS = 500000;
 	const MAX_RECRUITER_FILES = 100;
 	const MAX_RECRUITER_FILE_BYTES = 12 * 1024 * 1024;
+	const MAX_TASK_POLL_FAILURES = 3;
 	const inFlightWrites = new Map();
 	const taskPollers = new Map();
 
@@ -46,7 +47,7 @@
 			return;
 		}
 
-		const entry = { timer: null, polling: false };
+		const entry = { timer: null, polling: false, failures: 0 };
 		taskPollers.set(id, entry);
 		const finish = async task => {
 			if (entry.timer) clearInterval(entry.timer);
@@ -86,16 +87,20 @@
 			entry.polling = true;
 			try {
 				const task = await api(`/api/tasks/${encodeURIComponent(id)}`);
+				entry.failures = 0;
 				if (state.activeTask === id) renderTask(task);
 				if (["completed", "failed"].includes(task.status)) await finish(task);
 			} catch (error) {
+				entry.failures += 1;
+				if (entry.failures < MAX_TASK_POLL_FAILURES) return;
 				if (entry.timer) clearInterval(entry.timer);
 				taskPollers.delete(id);
+				state.taskCallbacks.delete(id);
 				if (state.activeTask === id) {
 					state.activeTask = latestWatchedTask(id);
 					if (!state.activeTask) $("#task-banner").classList.add("hidden");
 				}
-				toast(error.message || "任务状态读取失败", "error");
+				toast(error.message || "任务状态连续读取失败，已停止轮询", "error");
 			} finally {
 				entry.polling = false;
 			}
