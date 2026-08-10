@@ -11,27 +11,27 @@ from boss_agent_cli.recruiter_ai_models import stable_hash
 
 _INSTALLED = False
 _GENERIC_UPLOAD_NAMES = {"candidate", "resume", "cv", "简历"}
+_CONTACT_PRIORITY = ("phone", "email", "wechat", "qq")
 
 
-def _normalized_contacts(resume: dict[str, Any]) -> list[str]:
+def _primary_contact(resume: dict[str, Any]) -> str:
 	contacts = extract_contact_details(resume)
-	return sorted(
-		f"{kind}:{str(value).strip().casefold()}"
-		for kind, values in contacts.items()
-		for value in values
-		if str(value).strip()
-	)
+	for kind in _CONTACT_PRIORITY:
+		values = sorted({str(value).strip().casefold() for value in contacts.get(kind, []) if str(value).strip()})
+		if values:
+			return f"{kind}:{values[0]}"
+	return ""
 
 
 def _web_upload_key(resume: dict[str, Any], filename: str) -> str:
 	name = candidate_name(resume).strip().casefold()
 	stem = Path(filename).stem.strip().casefold()
-	contacts = _normalized_contacts(resume)
+	primary_contact = _primary_contact(resume)
 
-	if contacts:
-		# Contacts are strong recruiter-side identity signals. Hash the normalized values so the
-		# candidate key itself never stores a phone number, email, WeChat ID, or QQ value.
-		identity: dict[str, Any] = {"contacts_hash": stable_hash(contacts)}
+	if primary_contact:
+		# A single priority-ordered recruiter contact remains stable when a later resume adds secondary
+		# contacts. Hash it so the candidate key never stores a phone number, email, WeChat ID, or QQ.
+		identity: dict[str, Any] = {"contact_hash": stable_hash(primary_contact)}
 		if name and name not in _GENERIC_UPLOAD_NAMES and name != stem:
 			identity["name"] = name
 		return f"web-upload:{stable_hash(identity)[:24]}"
