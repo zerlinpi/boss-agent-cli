@@ -16,7 +16,7 @@ from __future__ import annotations
 import random
 import time
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 import httpx
 
@@ -40,7 +40,6 @@ _SelfT = TypeVar("_SelfT", bound="_BaseHttpClient")
 class _BaseHttpClient:
 	"""Hybrid API client base: httpx channel for low-risk ops, browser for high-risk ops."""
 
-	# ── Per-platform data (set by subclasses) ────────────────────────
 	_BASE_URL: str
 	_DEFAULT_HEADERS: dict[str, str]
 	_REFERER_MAP: dict[str, str]
@@ -61,15 +60,11 @@ class _BaseHttpClient:
 		self._closed = False
 		self._register()
 
-	# ── Registry hooks (subclass keeps its own module-level WeakSet) ──
-
 	def _register(self) -> None:
 		"""Track this instance for the atexit safeguard. Overridden per module."""
 
 	def _unregister(self) -> None:
 		"""Drop this instance from the atexit safeguard. Overridden per module."""
-
-	# ── Lazy channels ────────────────────────────────────────────────
 
 	def _validated_token(self) -> tuple[dict[str, Any], dict[str, str]]:
 		token = self._auth.get_token()
@@ -118,20 +113,21 @@ class _BaseHttpClient:
 	def _merge_cookies(self, resp: httpx.Response) -> None:
 		merge_response_cookies(self._get_client(), resp)
 
-	# ── httpx request with retry (low-risk ops) ──────────────────────
-
 	def _request(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
 		"""httpx 请求，循环重试（最多 _MAX_RETRIES 次）。"""
-		# extra_headers overrides yaml-driven defaults from _headers_for(url); candidate
-		# client never passes it, so the pop is a no-op there (behavior preserved).
-		extra_headers_override: dict[str, str] = kwargs.pop("extra_headers", {})
+		raw_extra_headers = kwargs.pop("extra_headers", {})
+		if not isinstance(raw_extra_headers, dict):
+			raise TypeError("extra_headers 必须是字符串键值对象")
+		extra_headers_override = {
+			str(name): str(value)
+			for name, value in raw_extra_headers.items()
+			if isinstance(name, str) and isinstance(value, str)
+		}
 		for attempt in range(_MAX_RETRIES + 1):
 			client = self._get_client()
 			token = self._auth.get_token()
-			stoken = token.get("stoken", "")
-
+			stoken = str(token.get("stoken") or "")
 			add_stoken_to_get_params(method, kwargs, stoken)
-
 			self._throttle.wait()
 
 			headers = {**self._headers_for(url), **extra_headers_override}
@@ -139,7 +135,6 @@ class _BaseHttpClient:
 			self._throttle.mark()
 			self._merge_cookies(resp)
 
-			# 403 或安全验证 → 刷新 token 重试
 			if resp.status_code == 403 or "安全验证" in resp.text:
 				if attempt >= _MAX_RETRIES:
 					raise self._AUTH_ERROR_CLS("Token 刷新后仍被拒绝，请重新登录")
@@ -151,14 +146,14 @@ class _BaseHttpClient:
 
 			resp.raise_for_status()
 			try:
-				data = resp.json()
+				raw_data = resp.json()
 			except (ValueError, TypeError) as exc:
 				raise self._AUTH_ERROR_CLS("平台返回无法解析的 JSON 响应，请稍后重试") from exc
-			if not isinstance(data, dict):
+			if not isinstance(raw_data, dict):
 				raise self._AUTH_ERROR_CLS("平台返回了非对象 JSON 响应，请稍后重试")
+			data = cast("dict[str, Any]", raw_data)
 			code = data.get("code")
 
-			# stoken 过期 → 刷新重试
 			if code == self._CODE_STOKEN_EXPIRED and attempt < _MAX_RETRIES:
 				backoff = (2**attempt) + random.uniform(0.5, 1.5)
 				time.sleep(backoff)
@@ -166,7 +161,6 @@ class _BaseHttpClient:
 				self._client = None
 				continue
 
-			# 频率限制 → 冷却重试
 			if code == self._CODE_RATE_LIMITED and attempt < _MAX_RETRIES:
 				cooldown = min(60, 10 * (2**attempt))
 				time.sleep(cooldown)
@@ -177,8 +171,6 @@ class _BaseHttpClient:
 			return data
 
 		raise self._AUTH_ERROR_CLS("请求失败，已达最大重试次数")
-
-	# ── Lifecycle ────────────────────────────────────────────────────
 
 	def close(self) -> None:
 		"""Release httpx client and browser session. Idempotent."""
