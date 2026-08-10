@@ -75,7 +75,6 @@ from boss_agent_cli.recruiter_ai_models import (  # noqa: E402
 	parse_ai_json,
 	read_json_input,
 	read_text_input,
-	recommended_reply_intent,
 	resume_fingerprint,
 	rubric_fingerprint,
 )
