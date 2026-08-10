@@ -187,6 +187,31 @@ def test_service_rejects_empty_key_model_or_messages():
 		_make_service().chat([{"role": "user", "content": None}])  # type: ignore[list-item]
 
 
+def test_service_rejects_oversized_configuration_fields():
+	with pytest.raises(AIServiceError, match="Base URL 过长"):
+		_make_service(base_url="https://example.com/" + "a" * 2050)
+	with pytest.raises(AIServiceError, match="API Key 过长"):
+		_make_service(api_key="k" * 8193)
+	with pytest.raises(AIServiceError, match="模型名称过长"):
+		_make_service(model="m" * 257)
+
+
+@patch("boss_agent_cli.ai.service.httpx.post")
+def test_service_rejects_oversized_messages_before_network_call(mock_post):
+	service = _make_service()
+	with pytest.raises(AIServiceError, match="最多 100 条"):
+		service.chat([{"role": "user", "content": "x"}] * 101)
+	with pytest.raises(AIServiceError, match="500000 字符"):
+		service.chat([{"role": "user", "content": "x" * 500001}])
+	with pytest.raises(AIServiceError, match="1000000 字符"):
+		service.chat([
+			{"role": "system", "content": "x" * 500000},
+			{"role": "user", "content": "y" * 500000},
+			{"role": "user", "content": "z"},
+		])
+	mock_post.assert_not_called()
+
+
 def test_service_accepts_finite_temperature_boundaries():
 	for value in (0, 0.5, 2):
 		service = _make_service(temperature=value)
