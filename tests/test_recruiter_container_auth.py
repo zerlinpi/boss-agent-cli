@@ -7,6 +7,9 @@ def test_container_login_requires_explicit_cdp(tmp_path, monkeypatch) -> None:
 	monkeypatch.setenv("BOSS_RECRUITER_CONTAINER", "1")
 	controller = RecruiterWebController(tmp_path)
 
+	status = controller.auth_status()
+	assert "BOSS_CDP_URL" in status["summary"]
+
 	with pytest.raises(WebConsoleError) as exc_info:
 		controller.login(timeout=30)
 
