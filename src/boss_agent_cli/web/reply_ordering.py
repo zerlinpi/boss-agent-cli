@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from heapq import nlargest
 from typing import Any
 
+from boss_agent_cli.recruiter_ai import RecruiterAIError
 from boss_agent_cli.web import controller as controller_module
 
 _INSTALLED = False
@@ -32,7 +33,7 @@ def _reply_key(record: dict[str, Any]) -> tuple[float, str]:
 
 
 def install_reply_ordering() -> None:
-	"""Read all matching reply files but retain only the newest bounded result set in memory."""
+	"""Read all matching reply files, fail on corruption, and retain only newest bounded results."""
 	global _INSTALLED
 	if _INSTALLED:
 		return
@@ -50,10 +51,10 @@ def install_reply_ordering() -> None:
 			for path in self.store.replies_dir.glob("reply_*.json"):
 				try:
 					payload = json.loads(path.read_text(encoding="utf-8"))
-				except (OSError, json.JSONDecodeError):
-					continue
+				except (OSError, json.JSONDecodeError) as exc:
+					raise RecruiterAIError(f"回复记录损坏: {path.stem}") from exc
 				if not isinstance(payload, dict):
-					continue
+					raise RecruiterAIError(f"回复记录损坏: {path.stem}")
 				if evaluation_id and str(payload.get("evaluation_id") or "") != evaluation_id:
 					continue
 				yield payload
