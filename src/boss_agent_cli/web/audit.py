@@ -14,12 +14,22 @@ def _now() -> str:
 	return datetime.now(timezone.utc).isoformat()
 
 
+def _restrict_permissions(path: Path, mode: int) -> None:
+	try:
+		path.chmod(mode)
+	except OSError:
+		pass
+
+
 class AuditLog:
 	"""Persist compact, non-secret operation records as JSON Lines."""
 
 	def __init__(self, data_dir: Path):
 		self.path = data_dir / "recruiter-ai" / "audit.jsonl"
 		self.path.parent.mkdir(parents=True, exist_ok=True)
+		_restrict_permissions(self.path.parent, 0o700)
+		if self.path.exists():
+			_restrict_permissions(self.path, 0o600)
 		self._lock = Lock()
 
 	def append(
@@ -45,8 +55,10 @@ class AuditLog:
 			if self.path.is_file() and self.path.stat().st_size > 5 * 1024 * 1024:
 				lines = self.path.read_text(encoding="utf-8").splitlines()[-2000:]
 				self.path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+				_restrict_permissions(self.path, 0o600)
 			with self.path.open("a", encoding="utf-8") as handle:
 				handle.write(line)
+			_restrict_permissions(self.path, 0o600)
 		return record
 
 	def list(self, *, limit: int = 100, action: str | None = None) -> list[dict[str, Any]]:
