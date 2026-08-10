@@ -11,7 +11,8 @@ _INSTALLED = False
 MAX_LOCAL_BATCH_BYTES = 40 * 1024 * 1024
 
 
-def _base64_decoded_size(encoded: str) -> int:
+def base64_decoded_size(encoded: str) -> int:
+	"""Estimate decoded bytes for strict browser-style Base64 without allocating the buffer."""
 	length = len(encoded)
 	padding = 0
 	if encoded.endswith("=="):
@@ -21,12 +22,13 @@ def _base64_decoded_size(encoded: str) -> int:
 	return max(0, (length * 3) // 4 - padding)
 
 
-def _estimated_document_bytes(entry: Any) -> int:
+def estimated_document_bytes(entry: Any) -> int:
+	"""Estimate one uploaded document's decoded/local payload size before parsing."""
 	if not isinstance(entry, dict):
 		return 0
 	encoded = entry.get("content_base64")
 	if isinstance(encoded, str):
-		return _base64_decoded_size(encoded)
+		return base64_decoded_size(encoded)
 	payload = entry.get("payload")
 	if isinstance(payload, dict):
 		try:
@@ -34,6 +36,11 @@ def _estimated_document_bytes(entry: Any) -> int:
 		except (TypeError, ValueError):
 			return 0
 	return 0
+
+
+# Backward-compatible aliases for existing focused tests/internal imports.
+_base64_decoded_size = base64_decoded_size
+_estimated_document_bytes = estimated_document_bytes
 
 
 def install_upload_policy() -> None:
@@ -49,7 +56,7 @@ def install_upload_policy() -> None:
 	def screen_local(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
 		entries = payload.get("documents", payload.get("resumes"))
 		if isinstance(entries, list):
-			total = sum(_estimated_document_bytes(entry) for entry in entries)
+			total = sum(estimated_document_bytes(entry) for entry in entries)
 			if total > MAX_LOCAL_BATCH_BYTES:
 				raise controller_module.WebConsoleError(
 					"PAYLOAD_TOO_LARGE",
