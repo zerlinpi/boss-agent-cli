@@ -43,11 +43,29 @@ renderJobs = function renderJobsWithLifecycle() {
 	injectJobDeleteButtons();
 };
 
+function injectCandidateFreshness(record, container) {
+	const freshness = record?.freshness;
+	if (!freshness || freshness.is_current !== false || container.querySelector('.candidate-freshness-warning')) return;
+	const section = document.createElement('section');
+	section.className = 'detail-section candidate-freshness-warning';
+	const latestId = String(freshness.latest_evaluation_id || '');
+	const currentId = String(record.id || '');
+	const latestAction = latestId && latestId !== currentId
+		? `<button type="button" class="button secondary compact-button" data-candidate-id="${escapeHtml(latestId)}">打开最新评估</button>`
+		: `<button type="button" class="button secondary compact-button" data-action="show-screening">重新筛选</button>`;
+	section.innerHTML = `<div><strong>当前查看的是历史评估</strong><p>${escapeHtml(freshness.reason || '岗位或候选人评估已发生变化，请以最新结果为准。')}</p></div>${latestAction}`;
+	const score = container.querySelector('.detail-score');
+	if (score) score.after(section);
+	else container.prepend(section);
+}
+
 const baseRenderCandidateDrawer = renderCandidateDrawer;
 renderCandidateDrawer = function renderCandidateDrawerWithLifecycle(record) {
 	baseRenderCandidateDrawer(record);
 	const container = $("#drawer-content");
-	if (!container || container.querySelector('[data-action="delete-candidate"]')) return;
+	if (!container) return;
+	injectCandidateFreshness(record, container);
+	if (container.querySelector('[data-action="delete-candidate"]')) return;
 	const section = document.createElement('section');
 	section.className = 'detail-section danger-zone';
 	section.innerHTML = `<div><h3>删除本地数据</h3><p>清理该候选人在当前岗位下的全部历史评估和关联回复草稿。其他岗位中的同一候选人不会被删除。此操作不可撤销。</p></div><button class="button danger-subtle" data-action="delete-candidate" data-evaluation-id="${escapeHtml(record.id)}">永久删除</button>`;
@@ -115,7 +133,7 @@ async function compareSelectedCandidates() {
 }
 
 document.addEventListener('click', event => {
-	const button = event.target.closest('[data-action="delete-job"],[data-action="delete-candidate"],[data-action="compare-candidates"],[data-action="close-comparison"]');
+	const button = event.target.closest('[data-action="delete-job"],[data-action="delete-candidate"],[data-action="compare-candidates"],[data-action="close-comparison"],[data-action="show-screening"]');
 	if (!button) return;
 	event.preventDefault();
 	event.stopPropagation();
@@ -123,6 +141,7 @@ document.addEventListener('click', event => {
 	if (button.dataset.action === 'delete-candidate') deleteCandidateLocal(button.dataset.evaluationId);
 	if (button.dataset.action === 'compare-candidates') compareSelectedCandidates();
 	if (button.dataset.action === 'close-comparison') closeCandidateComparison();
+	if (button.dataset.action === 'show-screening') { closeDrawer(); setView('screening'); }
 }, true);
 
 document.addEventListener('keydown', event => {
