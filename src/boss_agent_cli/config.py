@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 from contextlib import contextmanager
@@ -8,6 +9,7 @@ from typing import Any, Iterable, Iterator
 
 _CONFIG_LOCK_TIMEOUT = 5.0
 _CONFIG_STALE_LOCK_SECONDS = 60.0
+_LOG_LEVELS = {"debug", "info", "warning", "error"}
 
 DEFAULTS: dict[str, Any] = {
 	"request_delay": [1.5, 3.0],
@@ -61,6 +63,42 @@ def _merge_config(defaults: dict[str, Any], user_cfg: dict[str, Any]) -> dict[st
 			cfg[key] = merged
 		else:
 			cfg[key] = deepcopy(value)
+	return cfg
+
+
+def _normalize_delay(value: Any, default: list[float]) -> list[float]:
+	if not isinstance(value, (list, tuple)) or len(value) != 2:
+		return deepcopy(default)
+	clean: list[float] = []
+	for item in value:
+		if isinstance(item, bool) or not isinstance(item, (int, float)):
+			return deepcopy(default)
+		number = float(item)
+		if not math.isfinite(number) or number < 0:
+			return deepcopy(default)
+		clean.append(number)
+	if clean[0] > clean[1]:
+		return deepcopy(default)
+	return clean
+
+
+def _normalize_runtime_config(cfg: dict[str, Any]) -> dict[str, Any]:
+	"""Keep malformed hand-edited values from reaching runtime code with incompatible types."""
+	cfg["request_delay"] = _normalize_delay(cfg.get("request_delay"), DEFAULTS["request_delay"])
+	cfg["batch_greet_delay"] = _normalize_delay(cfg.get("batch_greet_delay"), DEFAULTS["batch_greet_delay"])
+	if cfg.get("log_level") not in _LOG_LEVELS:
+		cfg["log_level"] = DEFAULTS["log_level"]
+	for key in ("cdp_url", "export_dir"):
+		value = cfg.get(key)
+		if value is not None and not isinstance(value, str):
+			cfg[key] = DEFAULTS[key]
+	for key in ("platform", "role"):
+		value = cfg.get(key)
+		if not isinstance(value, str) or not value.strip():
+			cfg[key] = DEFAULTS[key]
+	for key in ("automation", "crawl"):
+		if not isinstance(cfg.get(key), dict):
+			cfg[key] = deepcopy(DEFAULTS[key])
 	return cfg
 
 
@@ -167,7 +205,7 @@ def replace_user_config(config_path: Path, payload: dict[str, Any]) -> None:
 
 def load_config(config_path: Path | None) -> dict[str, Any]:
 	user_cfg = read_user_config(config_path)
-	cfg = _merge_config(DEFAULTS, user_cfg)
+	cfg = _normalize_runtime_config(_merge_config(DEFAULTS, user_cfg))
 	mode = user_cfg.get("operating_mode")
 	if mode not in {"assisted", "research"}:
 		if "low_risk_mode" in user_cfg:
