@@ -56,15 +56,6 @@ _VAGUE_PROTECTED_TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 	),
 )
 
-_ID_NUMBER_RE = re.compile(r"(?<!\d)(?:\d{17}[\dXx]|\d{15})(?!\d)")
-_PASSPORT_RE = re.compile(
-	r"(?:护照号|护照号码|passport\s*(?:no\.?|number))\s*[:：#]?\s*[A-Z0-9]{5,20}",
-	re.IGNORECASE,
-)
-_RESIDENTIAL_ADDRESS_RE = re.compile(
-	r"(?:家庭住址|家庭地址|现住址|现居住址|居住地址|住宅地址|详细住址|住址)"
-	r"\s*[:：]\s*[^\n,，;；]{4,160}",
-)
 _DIMENSION_SEPARATORS_RE = re.compile(r"[^\w]+", re.UNICODE)
 _REQUIREMENT_SPACE_RE = re.compile(r"\s+")
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
@@ -77,13 +68,6 @@ def _dimension_key(value: Any) -> str:
 
 def _requirement_key(value: Any) -> str:
 	return _REQUIREMENT_SPACE_RE.sub(" ", str(value)).strip().casefold()
-
-
-def sanitize_local_conversation(text: str) -> str:
-	"""Keep operational contact methods while dropping non-essential identity/address data."""
-	sanitized = _ID_NUMBER_RE.sub("[身份证号已移除]", text)
-	sanitized = _PASSPORT_RE.sub("[护照号已移除]", sanitized)
-	return _RESIDENTIAL_ADDRESS_RE.sub("[居住地址已移除]", sanitized)
 
 
 def _rubric_texts(payload: dict[str, Any]) -> list[tuple[str, str]]:
@@ -123,7 +107,7 @@ def _redact_nested_strings(value: Any, sanitizer: Callable[[str], str]) -> Any:
 
 
 def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -> None:
-	"""Harden model input, rubric validation, incremental invalidation, and local persistence."""
+	"""Harden model input, rubric validation, and incremental invalidation."""
 	if getattr(model_module, "_recruiter_privacy_hardening_installed", False):
 		return
 
@@ -131,7 +115,6 @@ def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -
 	original_redact_resume: Callable[[dict[str, Any]], dict[str, Any]] = model_module.redact_resume_for_model
 	original_normalize_rubric: Callable[[dict[str, Any] | None], dict[str, Any]] = model_module.normalize_rubric
 	original_find_unchanged: Callable[..., dict[str, Any] | None] = store_cls.find_unchanged
-	original_save_reply: Callable[..., dict[str, Any]] = store_cls.save_reply
 
 	def hardened_redact(text: str) -> str:
 		redacted = original_redact(text)
@@ -194,24 +177,10 @@ def install_model_and_store_hardening(model_module: Any, store_cls: type[Any]) -
 			return None
 		return record
 
-	def hardened_save_reply(self: Any, **kwargs: Any) -> dict[str, Any]:
-		conversation = str(kwargs.get("conversation") or "")
-		sanitized = sanitize_local_conversation(conversation)
-		kwargs["conversation"] = sanitized
-		record = original_save_reply(self, **kwargs)
-		if sanitized != conversation:
-			record["local_conversation_sanitized"] = True
-			writer = getattr(self, "_write", None)
-			replies_dir = getattr(self, "replies_dir", None)
-			if callable(writer) and replies_dir is not None and record.get("id"):
-				writer(replies_dir / f"{record['id']}.json", record)
-		return record
-
 	model_module.redact_contact_text = hardened_redact
 	model_module.redact_resume_for_model = hardened_redact_resume
 	model_module.normalize_rubric = hardened_normalize_rubric
 	setattr(store_cls, "find_unchanged", hardened_find_unchanged)
-	setattr(store_cls, "save_reply", hardened_save_reply)
 	setattr(model_module, "_recruiter_privacy_hardening_installed", True)
 
 
