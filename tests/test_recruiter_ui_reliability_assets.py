@@ -23,6 +23,12 @@ def test_recruiter_app_asset_contains_write_deduplication_keyboard_freshness_and
 		assert "pruneCandidateDetailCache" in text
 		assert "candidateCacheConsistentApi" in text
 		assert "renderScreenResultWithFreshDetails" in text
+		assert "contextSafeDashboardLoad" in text
+		assert "contextSafeCandidateListLoad" in text
+		assert "contextSafeCandidateDetailLoad" in text
+		assert "contextSafeJobEditorLoad" in text
+		assert "dashboardRequestGeneration" in text
+		assert "candidateDetailRequestGeneration" in text
 		assert "safeAnalyzeJob" in text
 		assert "jobAnalysisGeneration" in text
 		assert "岗位内容已在分析期间发生变化" in text
