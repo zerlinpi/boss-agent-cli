@@ -11,7 +11,13 @@ from boss_agent_cli.display import handle_auth_errors, handle_output, handle_pla
 from boss_agent_cli.pipeline_state import build_pipeline_items, select_follow_up_candidates
 
 
-def _collect_pipeline_items(ctx: click.Context, *, command_name: str, now_ts_ms: int | None, stale_days: int) -> list[dict[str, Any]]:
+def _collect_pipeline_items(
+	ctx: click.Context,
+	*,
+	command_name: str,
+	now_ts_ms: int | None,
+	stale_days: int,
+) -> list[dict[str, Any]]:
 	data_dir = ctx.obj["data_dir"]
 	logger = ctx.obj["logger"]
 	auth = AuthManager(data_dir, logger=logger, platform=ctx.obj.get("platform", "zhipin"))
@@ -25,13 +31,23 @@ def _collect_pipeline_items(ctx: click.Context, *, command_name: str, now_ts_ms:
 		if not platform.is_success(interview_resp):
 			handle_platform_error_output(ctx, command_name, platform, interview_resp, fallback_message="面试列表获取失败")
 			return []
-		interview_data = platform.unwrap_data(interview_resp) or {}
-		interview_items = interview_data.get("interviewList") or []
+		interview_data = platform.unwrap_data(interview_resp)
+		if not isinstance(interview_data, dict):
+			handle_platform_error_output(
+				ctx,
+				command_name,
+				platform,
+				{"code": "INVALID_RESPONSE", "message": "面试列表响应结构异常"},
+				fallback_message="面试列表响应结构异常",
+			)
+			return []
+		raw_interview_items = interview_data.get("interviewList")
+		interview_items = raw_interview_items if isinstance(raw_interview_items, list) else []
 
 	return build_pipeline_items(
 		chat_items=chat_items,
 		interview_items=interview_items,
-		now_ts_ms=now_ts_ms or int(time.time() * 1000),
+		now_ts_ms=now_ts_ms if now_ts_ms is not None else int(time.time() * 1000),
 		stale_days=stale_days,
 	)
 
@@ -53,7 +69,7 @@ def _render_pipeline(data: list[dict[str, Any]], title: str) -> None:
 
 
 @click.command("pipeline")
-@click.option("--days-stale", default=3, type=int, help="超过 N 天未推进则标记为 follow_up")
+@click.option("--days-stale", default=3, type=click.IntRange(min=0), help="超过 N 天未推进则标记为 follow_up")
 @click.option("--now-ts-ms", default=None, type=int, help="测试用：覆盖当前时间戳（毫秒）")
 @click.pass_context
 @handle_auth_errors("pipeline")
@@ -72,7 +88,7 @@ def pipeline_cmd(ctx: click.Context, days_stale: int, now_ts_ms: int | None) -> 
 
 
 @click.command("follow-up")
-@click.option("--days-stale", default=3, type=int, help="超过 N 天未推进则视为 follow_up")
+@click.option("--days-stale", default=3, type=click.IntRange(min=0), help="超过 N 天未推进则视为 follow_up")
 @click.option("--now-ts-ms", default=None, type=int, help="测试用：覆盖当前时间戳（毫秒）")
 @click.pass_context
 @handle_auth_errors("follow-up")
