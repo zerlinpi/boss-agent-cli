@@ -7,6 +7,7 @@ import re
 from typing import Any, Callable
 
 from boss_agent_cli.web import controller as controller_module
+from boss_agent_cli.web.upload_policy import MAX_LOCAL_BATCH_BYTES, estimated_document_bytes
 
 _CONTROLLER_INSTALLED = False
 _SERVER_INSTALLED = False
@@ -87,6 +88,12 @@ def _preflight_async(path: str, clean: dict[str, Any]) -> None:
 			raise controller_module.WebConsoleError("INVALID_SCREEN_INPUT", "单次最多上传 100 份简历")
 		if any(not isinstance(entry, dict) for entry in entries):
 			raise controller_module.WebConsoleError("INVALID_SCREEN_INPUT", "每个简历条目都必须是 JSON 对象")
+		if sum(estimated_document_bytes(entry) for entry in entries) > MAX_LOCAL_BATCH_BYTES:
+			raise controller_module.WebConsoleError(
+				"PAYLOAD_TOO_LARGE",
+				"单次简历批次解码后不能超过 40 MB，请拆分后重试",
+				status=413,
+			)
 		clean["force"] = _boolean(clean.get("force"), label="force")
 		return
 
