@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,8 @@ from boss_agent_cli.display import handle_output, render_simple_list
 
 _CONFIG_CHOICES = {
 	"operating_mode": ("assisted", "research"),
+	"log_level": ("debug", "info", "warning", "error"),
+	"role": ("candidate", "recruiter"),
 }
 _PUBLIC_CONFIG_KEYS = tuple(
 	key for key in DEFAULTS
@@ -113,11 +117,21 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
 		ctx.exit(1)
 		return
 
-	config_path = ctx.obj["data_dir"] / "config.json"
-	parsed_value = _parse_value(value, DEFAULTS[key])
+	from boss_agent_cli.output import emit_error
+	try:
+		parsed_value = _parse_value(value, DEFAULTS[key])
+		_validate_value(key, parsed_value)
+	except (TypeError, ValueError, json.JSONDecodeError) as exc:
+		emit_error(
+			"config",
+			code="INVALID_PARAM",
+			message=f"{key} 配置值无效: {exc}",
+		)
+		ctx.exit(1)
+		return
+
 	choices = _CONFIG_CHOICES.get(key)
 	if choices is not None and parsed_value not in choices:
-		from boss_agent_cli.output import emit_error
 		emit_error(
 			"config",
 			code="INVALID_PARAM",
@@ -126,6 +140,7 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
 		ctx.exit(1)
 		return
 
+	config_path = ctx.obj["data_dir"] / "config.json"
 	removals = ("low_risk_mode",) if key == "operating_mode" else ()
 	update_user_config(config_path, updates={key: parsed_value}, removals=removals)
 
@@ -166,20 +181,48 @@ def _save_user_overrides(config_path: Path, user_cfg: dict[str, Any]) -> None:
 
 
 def _parse_value(raw: str, default: Any) -> Any:
-	"""根据默认值类型推断并转换输入值。"""
+	"""根据默认值类型推断并转换输入值，拒绝模糊类型转换。"""
 	if default is None:
 		if raw.lower() in ("null", "none", ""):
 			return None
 		return raw
 	if isinstance(default, bool):
-		return raw.lower() in ("true", "1", "yes")
+		value = raw.strip().lower()
+		if value in ("true", "1", "yes"):
+			return True
+		if value in ("false", "0", "no"):
+			return False
+		raise ValueError("布尔值必须是 true/false、1/0 或 yes/no")
 	if isinstance(default, int):
 		return int(raw)
 	if isinstance(default, float):
-		return float(raw)
+		value = float(raw)
+		if not math.isfinite(value):
+			raise ValueError("数字必须是有限值")
+		return value
 	if isinstance(default, list):
-		parts = raw.split(",")
-		if all(isinstance(d, (int, float)) for d in default):
-			return [float(p.strip()) for p in parts]
-		return [p.strip() for p in parts]
+		parts = [part.strip() for part in raw.split(",")]
+		if all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in default):
+			values = [float(part) for part in parts]
+			if any(not math.isfinite(item) for item in values):
+				raise ValueError("列表数字必须是有限值")
+			return values
+		return parts
+	if isinstance(default, dict):
+		parsed = json.loads(raw)
+		if not isinstance(parsed, dict):
+			raise ValueError("必须提供 JSON object")
+		return parsed
 	return raw
+
+
+def _validate_value(key: str, value: Any) -> None:
+	if key in {"request_delay", "batch_greet_delay"}:
+		if not isinstance(value, list) or len(value) != 2:
+			raise ValueError("必须提供两个逗号分隔的非负数字")
+		if any(isinstance(item, bool) or not isinstance(item, (int, float)) or item < 0 for item in value):
+			raise ValueError("延迟必须是非负数字")
+		if float(value[0]) > float(value[1]):
+			raise ValueError("最小延迟不能大于最大延迟")
+	if key in {"automation", "crawl"} and not isinstance(value, dict):
+		raise ValueError("必须提供 JSON object")
