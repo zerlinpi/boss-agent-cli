@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -39,13 +40,32 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+def _merge_config(defaults: dict[str, Any], user_cfg: dict[str, Any]) -> dict[str, Any]:
+	"""Merge top-level user settings while retaining missing nested default fields."""
+	cfg = deepcopy(defaults)
+	for key, value in user_cfg.items():
+		current = cfg.get(key)
+		if isinstance(current, dict) and isinstance(value, dict):
+			merged = deepcopy(current)
+			merged.update(deepcopy(value))
+			cfg[key] = merged
+		else:
+			cfg[key] = deepcopy(value)
+	return cfg
+
+
 def load_config(config_path: Path | None) -> dict[str, Any]:
-	cfg = dict(DEFAULTS)
 	user_cfg: dict[str, Any] = {}
 	if config_path and config_path.exists():
-		with open(config_path, encoding="utf-8") as f:
-			user_cfg = json.load(f)
-		cfg.update(user_cfg)
+		try:
+			with open(config_path, encoding="utf-8") as handle:
+				loaded = json.load(handle)
+		except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+			loaded = None
+		if isinstance(loaded, dict):
+			user_cfg = loaded
+
+	cfg = _merge_config(DEFAULTS, user_cfg)
 	mode = user_cfg.get("operating_mode")
 	if mode not in {"assisted", "research"}:
 		if "low_risk_mode" in user_cfg:
@@ -55,4 +75,5 @@ def load_config(config_path: Path | None) -> dict[str, Any]:
 	if mode not in {"assisted", "research"}:
 		mode = "assisted"
 	cfg["operating_mode"] = mode
+	cfg["low_risk_mode"] = mode != "research"
 	return cfg
