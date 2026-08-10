@@ -21,6 +21,15 @@ def test_string_false_cannot_trigger_job_deletion(tmp_path) -> None:
 		application.tasks.close()
 
 
+def test_direct_controller_string_false_cannot_trigger_job_deletion(tmp_path) -> None:
+	controller = RecruiterWebController(tmp_path)
+	controller.save_job({"job_key": "java", "title": "Java", "jd_text": "Java backend JD"})
+	with pytest.raises(WebConsoleError) as caught:
+		controller.save_job({"_delete": "false", "job_key": "java"})
+	assert caught.value.code == "INVALID_PARAM"
+	assert controller.get_job("java")["job_key"] == "java"
+
+
 def test_job_delete_requires_literal_boolean_true(tmp_path) -> None:
 	application = _application(tmp_path)
 	try:
