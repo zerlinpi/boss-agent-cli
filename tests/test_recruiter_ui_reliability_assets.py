@@ -17,6 +17,13 @@ def test_recruiter_app_asset_contains_write_deduplication_keyboard_freshness_and
 		assert "MAX_TASK_POLL_FAILURES" in text
 		assert "entry.failures = 0" in text
 		assert "state.taskCallbacks.delete(id)" in text
+		assert "activeTasks" in text
+		assert '["queued", "running", "cancelling"]' in text
+		assert "MAX_CANDIDATE_DETAIL_CACHE" in text
+		assert "pruneCandidateDetailCache" in text
+		assert "safeAnalyzeJob" in text
+		assert "jobAnalysisGeneration" in text
+		assert "岗位内容已在分析期间发生变化" in text
 		assert "accessibleRenderKanban" in text
 		assert "aria-label" in text
 		assert 'event.key === "Escape"' in text
