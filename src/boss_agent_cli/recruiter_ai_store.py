@@ -156,23 +156,24 @@ class RecruiterAIStore:
 			"schema_version": SCHEMA_VERSION,
 			"id": record_id,
 			"created_at": _utc_now(),
+			"updated_at": _utc_now(),
 			"job_key": job_key,
 			"candidate_key": candidate_key(resume, source),
 			"candidate_name": candidate_name(resume),
 			"resume_fingerprint": resume_fingerprint(resume),
 			"rubric_fingerprint": rubric_fingerprint(normalized_rubric),
 			"jd_text": jd_text,
+			"rubric": normalized_rubric,
 			"resume": resume,
-			"source": source,
 			"evaluation": evaluation,
+			"source": source,
 			"status": "new",
-			"status_note": "",
 		}
 		self._write(self.evaluations_dir / f"{record_id}.json", record)
 		return record
 
 	def get_evaluation(self, record_id: str) -> dict[str, Any]:
-		record_id = _safe_storage_key(record_id, label="evaluation_id")
+		record_id = _safe_storage_key(record_id, label="评估记录 ID")
 		path = self.evaluations_dir / f"{record_id}.json"
 		if not path.is_file():
 			raise RecruiterAIError(f"评估记录不存在: {record_id}")
@@ -184,46 +185,8 @@ class RecruiterAIStore:
 			raise RecruiterAIError(f"评估记录损坏: {record_id}")
 		return cast("dict[str, Any]", payload)
 
-	def save_reply(
-		self,
-		*,
-		evaluation_id: str,
-		intent: str,
-		conversation: str,
-		draft: dict[str, Any],
-	) -> dict[str, Any]:
-		evaluation_id = _safe_storage_key(evaluation_id, label="evaluation_id")
-		# The reply must point to an existing evaluation; otherwise it becomes an orphaned local record.
-		self.get_evaluation(evaluation_id)
-		record_id = self._new_id("reply")
-		record = {
-			"schema_version": SCHEMA_VERSION,
-			"id": record_id,
-			"created_at": _utc_now(),
-			"evaluation_id": evaluation_id,
-			"intent": intent,
-			"conversation": redact_contact_text(conversation),
-			"draft": draft,
-			"requires_human_review": True,
-			"sent": False,
-		}
-		self._write(self.replies_dir / f"{record_id}.json", record)
-		return record
-
-	def get_reply(self, record_id: str) -> dict[str, Any]:
-		record_id = _safe_storage_key(record_id, label="reply_id")
-		path = self.replies_dir / f"{record_id}.json"
-		if not path.is_file():
-			raise RecruiterAIError(f"回复记录不存在: {record_id}")
-		try:
-			payload = json.loads(path.read_text(encoding="utf-8"))
-		except (OSError, json.JSONDecodeError) as exc:
-			raise RecruiterAIError(f"回复记录损坏: {record_id}") from exc
-		if not isinstance(payload, dict):
-			raise RecruiterAIError(f"回复记录损坏: {record_id}")
-		return cast("dict[str, Any]", payload)
-
-	def _iter_evaluations(self, job_key: str | None = None) -> Iterable[dict[str, Any]]:
+	def list_evaluations(self, *, job_key: str | None = None) -> list[dict[str, Any]]:
+		records: list[dict[str, Any]] = []
 		for path in self.evaluations_dir.glob("eval_*.json"):
 			try:
 				payload = json.loads(path.read_text(encoding="utf-8"))
@@ -233,16 +196,15 @@ class RecruiterAIStore:
 				continue
 			if job_key is not None and payload.get("job_key") != job_key:
 				continue
-			yield cast("dict[str, Any]", payload)
+			records.append(cast("dict[str, Any]", payload))
+		return records
 
-	def latest_by_candidate(self, job_key: str) -> dict[str, dict[str, Any]]:
+	def latest_by_candidate(self, *, job_key: str) -> dict[str, dict[str, Any]]:
 		latest: dict[str, dict[str, Any]] = {}
-		for record in self._iter_evaluations(job_key=job_key):
-			key = str(record.get("candidate_key") or "")
-			if not key:
-				continue
-			previous = latest.get(key)
-			if previous is None or str(record.get("created_at", "")) > str(previous.get("created_at", "")):
+		for record in self.list_evaluations(job_key=job_key):
+			key = str(record.get("candidate_key") or record.get("id"))
+			current = latest.get(key)
+			if current is None or str(record.get("created_at", "")) > str(current.get("created_at", "")):
 				latest[key] = record
 		return latest
 
@@ -251,77 +213,114 @@ class RecruiterAIStore:
 		*,
 		job_key: str,
 		resume: dict[str, Any],
-		source: dict[str, Any],
+		source: dict[str, Any] | None,
 		rubric: dict[str, Any],
 	) -> dict[str, Any] | None:
 		key = candidate_key(resume, source)
-		latest = self.latest_by_candidate(job_key=job_key).get(key)
-		if latest is None:
+		record = self.latest_by_candidate(job_key=job_key).get(key)
+		if record is None:
 			return None
-		if latest.get("resume_fingerprint") != resume_fingerprint(resume):
+		if record.get("resume_fingerprint") != resume_fingerprint(resume):
 			return None
-		if latest.get("rubric_fingerprint") != rubric_fingerprint(rubric):
+		if record.get("rubric_fingerprint") != rubric_fingerprint(rubric):
 			return None
-		return latest
+		return record
 
-	def set_status(self, record_id: str, *, status: str, note: str = "") -> dict[str, Any]:
+	def rank(self, *, job_key: str, top: int) -> list[dict[str, Any]]:
+		def sort_key(record: dict[str, Any]) -> tuple[float, float, str]:
+			evaluation = record.get("evaluation")
+			if not isinstance(evaluation, dict):
+				return (-1.0, -1.0, "")
+			return (
+				_finite_sort_value(evaluation.get("total_score")),
+				_finite_sort_value(evaluation.get("confidence")),
+				str(record.get("created_at", "")),
+			)
+		limit = max(0, min(int(top), 10000))
+		records = sorted(self.latest_by_candidate(job_key=job_key).values(), key=sort_key, reverse=True)
+		return records[:limit]
+
+	def set_status(self, record_id: str, status: str, *, note: str = "") -> dict[str, Any]:
 		if status not in CANDIDATE_STATUSES:
 			raise RecruiterAIError(f"不支持的候选人状态: {status}")
-		if len(note) > 5000:
-			raise RecruiterAIError("候选人备注过长，最多 5000 字符")
+		record_id = _safe_storage_key(record_id, label="评估记录 ID")
 		record = self.get_evaluation(record_id)
 		record["status"] = status
-		record["status_note"] = note
-		record["status_updated_at"] = _utc_now()
+		record["status_note"] = str(note)[:5000]
+		record["updated_at"] = _utc_now()
 		self._write(self.evaluations_dir / f"{record_id}.json", record)
 		return record
 
-	def rank(self, *, job_key: str, top: int = 20) -> list[dict[str, Any]]:
-		top = max(1, min(int(top), 10000))
-		records = list(self.latest_by_candidate(job_key=job_key).values())
-		records.sort(
-			key=lambda record: _finite_sort_value(
-				(record.get("evaluation") or {}).get("total_score") if isinstance(record.get("evaluation"), dict) else None
-			),
-			reverse=True,
-		)
-		return records[:top]
+	def save_reply(
+		self,
+		*,
+		evaluation_id: str,
+		intent: str,
+		conversation: str,
+		draft: dict[str, Any],
+	) -> dict[str, Any]:
+		# Replies must belong to a real evaluation so deletion and audit lifecycles cannot leave orphans.
+		evaluation_id = _safe_storage_key(evaluation_id, label="评估记录 ID")
+		evaluation_record = self.get_evaluation(evaluation_id)
+		identity = str(evaluation_record.get("candidate_name") or "").strip()
+		safe_conversation = redact_contact_text(conversation)
+		if len(identity) >= 2:
+			safe_conversation = safe_conversation.replace(identity, "[姓名已脱敏]")
+		record_id = self._new_id("reply")
+		record = {
+			"schema_version": SCHEMA_VERSION,
+			"id": record_id,
+			"created_at": _utc_now(),
+			"evaluation_id": evaluation_id,
+			"intent": intent,
+			"conversation": safe_conversation,
+			"draft": draft,
+			"sent": False,
+			"requires_human_review": True,
+		}
+		self._write(self.replies_dir / f"{record_id}.json", record)
+		return record
 
 	def report(self, *, job_key: str, top: int = 10) -> dict[str, Any]:
-		records = self.rank(job_key=job_key, top=10000)
-		recommendation_counts = {name: 0 for name in RECOMMENDATIONS}
-		status_counts = {name: 0 for name in CANDIDATE_STATUSES}
+		records = list(self.latest_by_candidate(job_key=job_key).values())
+		buckets = {name: 0 for name in RECOMMENDATIONS}
+		statuses = {name: 0 for name in CANDIDATE_STATUSES}
 		for record in records:
-			evaluation = record.get("evaluation") if isinstance(record.get("evaluation"), dict) else {}
-			recommendation = evaluation.get("recommendation")
-			if recommendation in recommendation_counts:
-				recommendation_counts[recommendation] += 1
-			status = record.get("status")
-			if status in status_counts:
-				status_counts[status] += 1
+			evaluation = record.get("evaluation")
+			if isinstance(evaluation, dict) and evaluation.get("recommendation") in buckets:
+				buckets[str(evaluation["recommendation"])] += 1
+			status = str(record.get("status", "new"))
+			if status in statuses:
+				statuses[status] += 1
 		return {
 			"job_key": job_key,
 			"total_candidates": len(records),
-			"recommendation_counts": recommendation_counts,
-			"status_counts": status_counts,
-			"top_candidates": summarize_ranking(records[: max(1, min(top, 100))]),
+			"recommendation_counts": buckets,
+			"status_counts": statuses,
+			"top_candidates": summarize_ranking(self.rank(job_key=job_key, top=top)),
+			"human_review_required": True,
 		}
 
 
-def summarize_ranking(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def summarize_ranking(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 	items: list[dict[str, Any]] = []
 	for index, record in enumerate(records, 1):
-		evaluation = record.get("evaluation") if isinstance(record.get("evaluation"), dict) else {}
+		evaluation = record.get("evaluation")
+		if not isinstance(evaluation, dict):
+			continue
 		items.append({
 			"rank": index,
 			"evaluation_id": record.get("id", ""),
-			"candidate_name": record.get("candidate_name", "candidate"),
-			"total_score": evaluation.get("total_score", 0),
-			"recommendation": evaluation.get("recommendation", "manual_review"),
-			"confidence": evaluation.get("confidence", 0),
+			"candidate_key": record.get("candidate_key", ""),
+			"candidate_name": record.get("candidate_name", ""),
+			"total_score": evaluation.get("total_score"),
+			"recommendation": evaluation.get("recommendation"),
+			"confidence": evaluation.get("confidence"),
 			"status": record.get("status", "new"),
 			"strengths": evaluation.get("strengths", []),
 			"concerns": evaluation.get("concerns", []),
+			"next_questions": evaluation.get("next_questions", []),
 			"summary": evaluation.get("summary", ""),
+			"source": record.get("source", {}),
 		})
 	return items
