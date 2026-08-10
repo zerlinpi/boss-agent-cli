@@ -1,4 +1,6 @@
 /* Local data lifecycle and candidate-comparison controls. */
+let comparisonReturnFocus = null;
+
 const baseRenderOnboarding = renderOnboarding;
 renderOnboarding = function renderOnboardingWithOptionalBossLogin(onboarding) {
 	baseRenderOnboarding(onboarding);
@@ -100,8 +102,14 @@ async function deleteJobLocal(jobKey) {
 	} catch (error) { toast(error.message, 'error'); }
 }
 
-function closeCandidateComparison() {
-	$("#candidate-compare-modal")?.remove();
+function closeCandidateComparison(restoreFocus = true) {
+	const modal = $("#candidate-compare-modal");
+	if (!modal) return;
+	modal.remove();
+	if (restoreFocus && comparisonReturnFocus?.isConnected && typeof comparisonReturnFocus.focus === 'function') {
+		comparisonReturnFocus.focus();
+	}
+	comparisonReturnFocus = null;
 }
 
 function compareColumn(record) {
@@ -123,12 +131,18 @@ async function compareSelectedCandidates() {
 			state.candidateDetails.set(id, detail);
 			return detail;
 		}));
-		closeCandidateComparison();
+		const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		closeCandidateComparison(false);
+		comparisonReturnFocus = trigger;
 		const modal = document.createElement('aside');
 		modal.id = 'candidate-compare-modal';
 		modal.className = 'compare-modal';
-		modal.innerHTML = `<div class="compare-backdrop" data-action="close-comparison"></div><div class="compare-panel"><header class="compare-header"><div><p class="eyebrow">SIDE-BY-SIDE</p><h2>候选人对比</h2><span>并排查看 AI 证据，最终结论仍由招聘人员决定。</span></div><button class="icon-button" data-action="close-comparison">×</button></header><div class="compare-grid" style="--compare-columns:${records.length}">${records.map(compareColumn).join('')}</div></div>`;
+		modal.setAttribute('role', 'dialog');
+		modal.setAttribute('aria-modal', 'true');
+		modal.setAttribute('aria-labelledby', 'candidate-compare-title');
+		modal.innerHTML = `<div class="compare-backdrop" data-action="close-comparison"></div><div class="compare-panel"><header class="compare-header"><div><p class="eyebrow">SIDE-BY-SIDE</p><h2 id="candidate-compare-title">候选人对比</h2><span>并排查看 AI 证据，最终结论仍由招聘人员决定。</span></div><button class="icon-button" data-action="close-comparison" aria-label="关闭候选人对比">×</button></header><div class="compare-grid" style="--compare-columns:${records.length}">${records.map(compareColumn).join('')}</div></div>`;
 		document.body.append(modal);
+		modal.querySelector('[data-action="close-comparison"]')?.focus();
 	} catch (error) { toast(error.message, 'error'); }
 }
 
@@ -145,7 +159,25 @@ document.addEventListener('click', event => {
 }, true);
 
 document.addEventListener('keydown', event => {
-	if (event.key === 'Escape') closeCandidateComparison();
+	const modal = $("#candidate-compare-modal");
+	if (!modal) return;
+	if (event.key === 'Escape') {
+		event.preventDefault();
+		closeCandidateComparison();
+		return;
+	}
+	if (event.key !== 'Tab') return;
+	const focusable = [...modal.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+	if (!focusable.length) return;
+	const first = focusable[0];
+	const last = focusable[focusable.length - 1];
+	if (event.shiftKey && document.activeElement === first) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && document.activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
 });
 
 injectJobDeleteButtons();
