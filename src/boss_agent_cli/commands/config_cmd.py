@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import click
 
-from boss_agent_cli.config import DEFAULTS
+from boss_agent_cli.config import DEFAULTS, read_user_config, replace_user_config, update_user_config
 from boss_agent_cli.display import handle_output, render_simple_list
 
 _CONFIG_CHOICES = {
@@ -35,12 +34,13 @@ def config_list_cmd(ctx: click.Context) -> None:
 	"""显示当前全部配置。"""
 	cfg = ctx.obj["config"]
 	config_path = ctx.obj["data_dir"] / "config.json"
+	user_overrides = _load_user_overrides(config_path)
 
 	items = []
 	for key in sorted(_PUBLIC_CONFIG_KEYS):
 		default_val = DEFAULTS[key]
 		current_val = cfg.get(key, default_val)
-		is_custom = key in _load_user_overrides(config_path)
+		is_custom = key in user_overrides
 		items.append({
 			"key": key,
 			"value": current_val,
@@ -114,8 +114,6 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
 		return
 
 	config_path = ctx.obj["data_dir"] / "config.json"
-	user_cfg = _load_user_overrides(config_path)
-
 	parsed_value = _parse_value(value, DEFAULTS[key])
 	choices = _CONFIG_CHOICES.get(key)
 	if choices is not None and parsed_value not in choices:
@@ -127,10 +125,9 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
 		)
 		ctx.exit(1)
 		return
-	user_cfg[key] = parsed_value
-	if key == "operating_mode":
-		user_cfg.pop("low_risk_mode", None)
-	_save_user_overrides(config_path, user_cfg)
+
+	removals = ("low_risk_mode",) if key == "operating_mode" else ()
+	update_user_config(config_path, updates={key: parsed_value}, removals=removals)
 
 	data = {"key": key, "value": parsed_value, "previous": ctx.obj["config"].get(key)}
 	handle_output(ctx, "config", data, render=lambda d: None)
@@ -152,9 +149,7 @@ def config_reset_cmd(ctx: click.Context, key: str) -> None:
 		return
 
 	config_path = ctx.obj["data_dir"] / "config.json"
-	user_cfg = _load_user_overrides(config_path)
-	user_cfg.pop(key, None)
-	_save_user_overrides(config_path, user_cfg)
+	update_user_config(config_path, removals=(key,))
 
 	data = {"key": key, "value": DEFAULTS[key], "restored": True}
 	handle_output(ctx, "config", data, render=lambda d: None)
@@ -162,22 +157,12 @@ def config_reset_cmd(ctx: click.Context, key: str) -> None:
 
 def _load_user_overrides(config_path: Path) -> dict[str, Any]:
 	"""加载用户自定义配置（不含默认值）。"""
-	if config_path.exists():
-		try:
-			with open(config_path, encoding="utf-8") as f:
-				result: dict[str, Any] = json.load(f)
-				return result
-		except (json.JSONDecodeError, OSError):
-			return {}
-	return {}
+	return read_user_config(config_path)
 
 
 def _save_user_overrides(config_path: Path, user_cfg: dict[str, Any]) -> None:
-	"""保存用户配置到文件。"""
-	config_path.parent.mkdir(parents=True, exist_ok=True)
-	with open(config_path, "w", encoding="utf-8") as f:
-		json.dump(user_cfg, f, ensure_ascii=False, indent=2)
-		f.write("\n")
+	"""原子保存完整用户配置；常规 set/reset 应优先使用 update_user_config。"""
+	replace_user_config(config_path, user_cfg)
 
 
 def _parse_value(raw: str, default: Any) -> Any:
