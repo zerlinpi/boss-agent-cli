@@ -86,9 +86,7 @@ class AIConfigStore:
 		self._derived_key_cache: bytes | None = None
 
 	def _legacy_machine_id(self) -> str:
-		"""Return the pre-1.18 AI-key identity so existing keys can migrate once."""
-		if override := os.getenv("BOSS_AGENT_MACHINE_ID"):
-			return override
+		"""Return the pre-1.18 physical fingerprint so old AI keys can migrate once."""
 		fingerprint = "|".join([
 			platform.node() or "unknown-node",
 			platform.system() or "unknown-system",
