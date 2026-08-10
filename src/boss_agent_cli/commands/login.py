@@ -29,7 +29,7 @@ def _classify_login_error(exc: Exception, ctx: click.Context) -> dict[str, objec
 			[
 				"确认已在弹出的浏览器或 CDP Chrome 中完成扫码并授权登录",
 				"网络较慢时可追加 --timeout 180 或更长时间",
-				"如已打开本机 Chrome，可先运行 boss-chrome 后再重试登录",
+				"若使用 CDP，请确认 Chrome 已以远程调试模式启动，并检查 --cdp-url 是否可访问",
 			],
 		)
 
@@ -50,7 +50,7 @@ def _classify_login_error(exc: Exception, ctx: click.Context) -> dict[str, objec
 			"CDP_UNAVAILABLE",
 			f"Chrome 调试连接不可用: {raw_message}",
 			[
-				"运行 boss-chrome 启动带调试端口的 Chrome",
+				"手动启动带远程调试端口的 Chrome，并确认 Chrome DevTools 地址可访问",
 				"或去掉 --cdp，让命令自动尝试 Cookie / 可见浏览器登录降级链路",
 				"确认 --cdp-url 指向可访问的 Chrome DevTools 地址",
 			],
@@ -85,7 +85,7 @@ def _classify_login_error(exc: Exception, ctx: click.Context) -> dict[str, objec
 			[
 				"确认浏览器已完成登录并进入平台首页",
 				"若 Cookie 提取失败，可指定 --cookie-source chrome/firefox/edge",
-				"若仍失败，可运行 boss-chrome 后使用 --cdp 重试",
+				"若仍失败，可手动启动 Chrome 远程调试并通过 --cdp-url 配置后使用 --cdp 重试",
 			],
 		)
 
