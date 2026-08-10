@@ -106,9 +106,17 @@ def install_local_data_safety(model_module: Any, store_cls: type[Any]) -> None:
 		return original_save_evaluation(self, **kwargs)
 
 	def save_reply(self: Any, **kwargs: Any) -> dict[str, Any]:
-		if "conversation" in kwargs:
-			kwargs["conversation"] = sanitize_high_risk_identity_text(str(kwargs.get("conversation") or ""))
-		return original_save_reply(self, **kwargs)
+		conversation = str(kwargs.get("conversation") or "")
+		sanitized = sanitize_high_risk_identity_text(conversation)
+		kwargs["conversation"] = sanitized
+		record = original_save_reply(self, **kwargs)
+		if sanitized != conversation:
+			record["local_conversation_sanitized"] = True
+			writer = getattr(self, "_write", None)
+			replies_dir = getattr(self, "replies_dir", None)
+			if callable(writer) and replies_dir is not None and record.get("id"):
+				writer(replies_dir / f"{record['id']}.json", record)
+		return record
 
 	model_module.redact_contact_text = redact_contact_text
 	model_module.redact_resume_for_model = redact_resume_for_model
