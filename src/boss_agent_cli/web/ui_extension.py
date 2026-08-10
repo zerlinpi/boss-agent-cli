@@ -19,7 +19,9 @@ def install_ui_reliability_assets(server_module: Any) -> None:
 	def asset(self: Any, name: str) -> tuple[bytes, str]:
 		content, content_type = original_asset(self, name)
 		if name == "app.js":
-			content += b"\n" + files("boss_agent_cli.web.assets").joinpath("ui_reliability.js").read_bytes()
+			assets = files("boss_agent_cli.web.assets")
+			content += b"\n" + assets.joinpath("ui_reliability.js").read_bytes()
+			content += b"\n" + assets.joinpath("ui_cache_consistency.js").read_bytes()
 		return content, content_type
 
 	setattr(application_cls, "asset", asset)
