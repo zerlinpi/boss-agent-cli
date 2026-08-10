@@ -9,19 +9,43 @@ from typing import Any
 
 import click
 
-from boss_agent_cli.config import DEFAULTS, read_user_config, replace_user_config, update_user_config
+from boss_agent_cli.config import (
+	ConfigLockBusy,
+	DEFAULTS,
+	read_user_config,
+	replace_user_config,
+	update_user_config,
+)
 from boss_agent_cli.display import handle_output, render_simple_list
+from boss_agent_cli.output import emit_error
 
 _CONFIG_CHOICES = {
 	"operating_mode": ("assisted", "research"),
 	"log_level": ("debug", "info", "warning", "error"),
 	"role": ("candidate", "recruiter"),
 }
-_PUBLIC_CONFIG_KEYS = tuple(
-	key for key in DEFAULTS
-	if key != "low_risk_mode"
-)
+_PUBLIC_CONFIG_KEYS = tuple(key for key in DEFAULTS if key != "low_risk_mode")
 _AVAILABLE_CONFIG_MESSAGE = f"可用项: {', '.join(sorted(_PUBLIC_CONFIG_KEYS))}"
+
+
+def _exit_error(ctx: click.Context, *, code: str, message: str) -> None:
+	emit_error("config", code=code, message=message)
+	ctx.exit(1)
+
+
+def _update_config_or_exit(
+	ctx: click.Context,
+	config_path: Path,
+	*,
+	updates: dict[str, Any] | None = None,
+	removals: tuple[str, ...] = (),
+) -> None:
+	try:
+		update_user_config(config_path, updates=updates, removals=removals)
+	except ConfigLockBusy as exc:
+		_exit_error(ctx, code="CONFIG_BUSY", message=str(exc))
+	except OSError as exc:
+		_exit_error(ctx, code="CONFIG_WRITE_FAILED", message=f"配置保存失败: {exc}")
 
 
 @click.group("config", invoke_without_command=True)
@@ -84,13 +108,7 @@ def config_get_cmd(ctx: click.Context, key: str) -> None:
 	"""查看单个配置项的值。"""
 	cfg = ctx.obj["config"]
 	if key not in _PUBLIC_CONFIG_KEYS:
-		from boss_agent_cli.output import emit_error
-		emit_error(
-			"config",
-			code="INVALID_PARAM",
-			message=f"未知配置项。{_AVAILABLE_CONFIG_MESSAGE}",
-		)
-		ctx.exit(1)
+		_exit_error(ctx, code="INVALID_PARAM", message=f"未知配置项。{_AVAILABLE_CONFIG_MESSAGE}")
 		return
 
 	data = {
@@ -108,41 +126,24 @@ def config_get_cmd(ctx: click.Context, key: str) -> None:
 def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
 	"""修改配置项。"""
 	if key not in _PUBLIC_CONFIG_KEYS:
-		from boss_agent_cli.output import emit_error
-		emit_error(
-			"config",
-			code="INVALID_PARAM",
-			message=f"未知配置项。{_AVAILABLE_CONFIG_MESSAGE}",
-		)
-		ctx.exit(1)
+		_exit_error(ctx, code="INVALID_PARAM", message=f"未知配置项。{_AVAILABLE_CONFIG_MESSAGE}")
 		return
 
-	from boss_agent_cli.output import emit_error
 	try:
 		parsed_value = _parse_value(value, DEFAULTS[key])
 		_validate_value(key, parsed_value)
 	except (TypeError, ValueError, json.JSONDecodeError) as exc:
-		emit_error(
-			"config",
-			code="INVALID_PARAM",
-			message=f"{key} 配置值无效: {exc}",
-		)
-		ctx.exit(1)
+		_exit_error(ctx, code="INVALID_PARAM", message=f"{key} 配置值无效: {exc}")
 		return
 
 	choices = _CONFIG_CHOICES.get(key)
 	if choices is not None and parsed_value not in choices:
-		emit_error(
-			"config",
-			code="INVALID_PARAM",
-			message=f"{key} 必须是以下值之一: {', '.join(choices)}",
-		)
-		ctx.exit(1)
+		_exit_error(ctx, code="INVALID_PARAM", message=f"{key} 必须是以下值之一: {', '.join(choices)}")
 		return
 
 	config_path = ctx.obj["data_dir"] / "config.json"
 	removals = ("low_risk_mode",) if key == "operating_mode" else ()
-	update_user_config(config_path, updates={key: parsed_value}, removals=removals)
+	_update_config_or_exit(ctx, config_path, updates={key: parsed_value}, removals=removals)
 
 	data = {"key": key, "value": parsed_value, "previous": ctx.obj["config"].get(key)}
 	handle_output(ctx, "config", data, render=lambda d: None)
@@ -154,17 +155,11 @@ def config_set_cmd(ctx: click.Context, key: str, value: str) -> None:
 def config_reset_cmd(ctx: click.Context, key: str) -> None:
 	"""将配置项恢复为默认值。"""
 	if key not in _PUBLIC_CONFIG_KEYS:
-		from boss_agent_cli.output import emit_error
-		emit_error(
-			"config",
-			code="INVALID_PARAM",
-			message=f"未知配置项。{_AVAILABLE_CONFIG_MESSAGE}",
-		)
-		ctx.exit(1)
+		_exit_error(ctx, code="INVALID_PARAM", message=f"未知配置项。{_AVAILABLE_CONFIG_MESSAGE}")
 		return
 
 	config_path = ctx.obj["data_dir"] / "config.json"
-	update_user_config(config_path, removals=(key,))
+	_update_config_or_exit(ctx, config_path, removals=(key,))
 
 	data = {"key": key, "value": DEFAULTS[key], "restored": True}
 	handle_output(ctx, "config", data, render=lambda d: None)
