@@ -11,6 +11,7 @@ import platform
 from base64 import urlsafe_b64encode
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -32,6 +33,7 @@ PROVIDER_BASE_URLS: dict[str, str | None] = {
 	"custom": None,
 }
 _LOCAL_PROVIDER_PORTS = {"ollama": 11434, "vllm": 8000}
+_LOOPBACK_AI_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 _DEFAULT_CONFIG: dict[str, Any] = {
 	"ai_provider": None,
@@ -71,6 +73,30 @@ def _atomic_write(path: Path, data: bytes) -> None:
 			temporary.unlink()
 		except FileNotFoundError:
 			pass
+
+
+def _docker_local_ai_url(provider: str, configured_url: str | None) -> str | None:
+	"""Rewrite only loopback local-model URLs when Docker provides a host gateway name."""
+	local_host = os.getenv("BOSS_LOCAL_AI_HOST", "").strip()
+	if not local_host or "://" in local_host or "/" in local_host or ":" in local_host:
+		return None
+	port = _LOCAL_PROVIDER_PORTS[provider]
+	path = "/v1"
+	scheme = "http"
+	if configured_url:
+		try:
+			parsed = urlparse(configured_url)
+		except ValueError:
+			return None
+		if parsed.hostname not in _LOOPBACK_AI_HOSTS:
+			return None
+		scheme = parsed.scheme if parsed.scheme in {"http", "https"} else "http"
+		try:
+			port = parsed.port or port
+		except ValueError:
+			return None
+		path = parsed.path.rstrip("/") or "/v1"
+	return f"{scheme}://{local_host}:{port}{path}"
 
 
 class AIConfigStore:
@@ -214,16 +240,17 @@ class AIConfigStore:
 		return config
 
 	def get_base_url(self) -> str | None:
-		"""Get the API base URL: user config takes priority, then provider/environment defaults."""
+		"""Resolve explicit config, with Docker loopback rewriting for built-in local providers."""
 		config = self.load_config()
-		base_url = config.get("ai_base_url")
-		if base_url:
-			return str(base_url)
 		provider = config.get("ai_provider")
+		raw_base_url = config.get("ai_base_url")
+		base_url = raw_base_url.strip() if isinstance(raw_base_url, str) else ""
 		if isinstance(provider, str) and provider in _LOCAL_PROVIDER_PORTS:
-			local_host = os.getenv("BOSS_LOCAL_AI_HOST", "").strip()
-			if local_host and "://" not in local_host and "/" not in local_host:
-				return f"http://{local_host}:{_LOCAL_PROVIDER_PORTS[provider]}/v1"
+			docker_url = _docker_local_ai_url(provider, base_url or None)
+			if docker_url:
+				return docker_url
+		if base_url:
+			return base_url
 		if isinstance(provider, str) and provider in PROVIDER_BASE_URLS:
 			return PROVIDER_BASE_URLS[provider]
 		return None
