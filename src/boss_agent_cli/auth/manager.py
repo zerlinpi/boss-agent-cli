@@ -4,7 +4,7 @@ from typing import Any
 from boss_agent_cli.auth.browser import login_via_browser, login_via_cdp, probe_cdp, refresh_stoken, refresh_stoken_via_cdp
 from boss_agent_cli.auth.cookie_extract import extract_cookies
 from boss_agent_cli.auth.qr_login import qr_login_httpx
-from boss_agent_cli.auth.token_store import TokenStore
+from boss_agent_cli.auth.token_store import RefreshLockBusy, TokenStore
 from boss_agent_cli.output import Logger
 
 
@@ -160,37 +160,42 @@ class AuthManager:
 			return False
 
 	def force_refresh(self, cdp_url: str | None = None) -> None:
-		with self._store.refresh_lock():
-			current = self._store.load()
-			if current is None:
-				raise TokenRefreshFailed("无法刷新 Token，请重新登录")
-			self._logger.info("Token 过期，正在静默刷新...")
-			try:
-				if self._platform == "zhilian":
-					refreshed = extract_cookies(None, platform=self._platform)
-					if not refreshed or not self._verify_cookie(refreshed):
-						refreshed = login_via_cdp(cdp_url=cdp_url, timeout=30, platform=self._platform)
-					if not refreshed or not self._verify_cookie(refreshed):
-						raise TokenRefreshFailed("智联登录态刷新失败，请重新登录")
+		try:
+			with self._store.refresh_lock():
+				current = self._store.load()
+				if current is None:
+					raise TokenRefreshFailed("无法刷新 Token，请重新登录")
+				self._logger.info("Token 过期，正在静默刷新...")
+				try:
+					if self._platform == "zhilian":
+						refreshed = extract_cookies(None, platform=self._platform)
+						if not refreshed or not self._verify_cookie(refreshed):
+							refreshed = login_via_cdp(cdp_url=cdp_url, timeout=30, platform=self._platform)
+						if not refreshed or not self._verify_cookie(refreshed):
+							raise TokenRefreshFailed("智联登录态刷新失败，请重新登录")
+						self._store.save(refreshed)
+						self._token = refreshed
+						return
+
+					# CDP 优先：指纹一致，不会被 BOSS 直聘拒绝
+					if probe_cdp(cdp_url):
+						self._logger.info("检测到 CDP，使用 CDP 刷新 stoken")
+						new_stoken = refresh_stoken_via_cdp(cdp_url)
+					else:
+						self._logger.info("CDP 不可用，降级到 headless 刷新 stoken")
+						new_stoken = refresh_stoken(
+							current["cookies"],
+							current.get("user_agent", ""),
+						)
+					refreshed = {**current, "stoken": new_stoken}
 					self._store.save(refreshed)
 					self._token = refreshed
-					return
-
-				# CDP 优先：指纹一致，不会被 BOSS 直聘拒绝
-				if probe_cdp(cdp_url):
-					self._logger.info("检测到 CDP，使用 CDP 刷新 stoken")
-					new_stoken = refresh_stoken_via_cdp(cdp_url)
-				else:
-					self._logger.info("CDP 不可用，降级到 headless 刷新 stoken")
-					new_stoken = refresh_stoken(
-						current["cookies"],
-						current.get("user_agent", ""),
-					)
-				refreshed = {**current, "stoken": new_stoken}
-				self._store.save(refreshed)
-				self._token = refreshed
-			except Exception as exc:
-				raise TokenRefreshFailed(f"Token 刷新失败: {exc}") from exc
+				except TokenRefreshFailed:
+					raise
+				except Exception as exc:
+					raise TokenRefreshFailed(f"Token 刷新失败: {exc}") from exc
+		except RefreshLockBusy as exc:
+			raise TokenRefreshFailed(str(exc)) from exc
 
 	def check_status(self) -> dict[str, Any] | None:
 		return self._store.load()
