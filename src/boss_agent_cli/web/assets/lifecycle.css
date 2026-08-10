@@ -8,6 +8,17 @@
 .danger-zone h3, .danger-zone p { margin: 0; }
 .danger-zone p { margin-top: 5px; color: var(--text-soft); font-size: 12px; }
 
+.candidate-freshness-warning {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	border: 1px solid #efc779;
+	background: #fff8e8;
+}
+.candidate-freshness-warning strong { color: #7b5300; }
+.candidate-freshness-warning p { margin: 5px 0 0; color: #7d6943; font-size: 12px; line-height: 1.55; }
+
 .compare-modal { position: fixed; inset: 0; z-index: 90; }
 .compare-backdrop { position: absolute; inset: 0; background: rgba(17, 27, 24, .48); backdrop-filter: blur(3px); }
 .compare-panel { position: absolute; inset: 4vh 3vw; overflow: hidden; display: flex; flex-direction: column; border-radius: 16px; background: var(--surface); box-shadow: 0 24px 70px rgba(12, 25, 21, .24); }
@@ -34,6 +45,6 @@
 	.compare-grid { grid-template-columns: repeat(var(--compare-columns), minmax(240px, 78vw)); }
 }
 @media (max-width: 560px) {
-	.danger-zone { align-items: stretch; flex-direction: column; }
+	.danger-zone, .candidate-freshness-warning { align-items: stretch; flex-direction: column; }
 	.compare-panel { inset: 0; border-radius: 0; }
 }
