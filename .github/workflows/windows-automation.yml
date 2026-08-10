@@ -1,0 +1,60 @@
+name: Windows Automation Safety
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "src/boss_agent_cli/automation/**"
+      - "src/boss_agent_cli/cache/**"
+      - "src/boss_agent_cli/resume/**"
+      - "src/boss_agent_cli/pipeline_state.py"
+      - "src/boss_agent_cli/commands/pipeline.py"
+      - "tests/test_automation_*.py"
+      - "tests/test_cache_recovery.py"
+      - "tests/test_resume_store_hardening.py"
+      - "tests/test_pipeline_state_hardening.py"
+      - ".github/workflows/windows-automation.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "src/boss_agent_cli/automation/**"
+      - "src/boss_agent_cli/cache/**"
+      - "src/boss_agent_cli/resume/**"
+      - "src/boss_agent_cli/pipeline_state.py"
+      - "src/boss_agent_cli/commands/pipeline.py"
+      - "tests/test_automation_*.py"
+      - "tests/test_cache_recovery.py"
+      - "tests/test_resume_store_hardening.py"
+      - "tests/test_pipeline_state_hardening.py"
+      - ".github/workflows/windows-automation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-automation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run Windows automation and persistence regressions
+        run: >-
+          uv run pytest -q
+          tests/test_automation_runner_lease.py
+          tests/test_automation_storage_hardening.py
+          tests/test_automation_execution_checkpoints.py
+          tests/test_cache_recovery.py
+          tests/test_resume_store_hardening.py
+          tests/test_pipeline_state_hardening.py
