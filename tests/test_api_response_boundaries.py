@@ -18,7 +18,7 @@ class FakeAuth:
 		return None
 
 
-class TestClient(_BaseHttpClient):
+class _BoundaryClient(_BaseHttpClient):
 	_BASE_URL = "https://example.invalid"
 	_DEFAULT_HEADERS = {}
 	_REFERER_MAP = {}
@@ -55,20 +55,20 @@ class HttpClient:
 
 
 def _client(token, payload):
-	client = TestClient(FakeAuth(token), delay=(0, 0))
+	client = _BoundaryClient(FakeAuth(token), delay=(0, 0))
 	client._client = HttpClient(payload)
 	client._merge_cookies = lambda response: None
 	return client
 
 
 def test_corrupt_cookie_shape_is_rejected_before_network_use() -> None:
-	client = TestClient(FakeAuth({"cookies": []}), delay=(0, 0))
+	client = _BoundaryClient(FakeAuth({"cookies": []}), delay=(0, 0))
 	with pytest.raises(BoundaryAuthError, match="cookies 不是对象"):
 		client._get_client()
 
 
 def test_empty_cookie_object_is_rejected_before_network_use() -> None:
-	client = TestClient(FakeAuth({"cookies": {}}), delay=(0, 0))
+	client = _BoundaryClient(FakeAuth({"cookies": {}}), delay=(0, 0))
 	with pytest.raises(BoundaryAuthError, match="缺少有效 Cookie"):
 		client._get_client()
 
