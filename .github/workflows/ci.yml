@@ -132,6 +132,60 @@ jobs:
       - name: Run mypy
         run: uv run mypy src/boss_agent_cli
 
+  windows:
+    name: Windows recruiter baseline
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Parse Windows one-click PowerShell launchers
+        shell: pwsh
+        run: |
+          $scripts = @(
+            "scripts/start-recruiter-web.ps1",
+            "scripts/start-recruiter-docker.ps1"
+          )
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell parse failed: $script"
+            }
+          }
+
+      - name: Run Windows-sensitive recruiter tests
+        run: >-
+          uv run pytest -q
+          tests/test_auth.py
+          tests/test_ai_config.py
+          tests/test_ai_config_migration.py
+          tests/test_recruiter_container_identity.py
+          tests/test_recruiter_web_upload_identity.py
+
+      - name: Build recruiter Web server on Windows
+        run: >-
+          uv run python -c
+          "from pathlib import Path; from boss_agent_cli.web import RecruiterWebController, build_server;
+          c=RecruiterWebController(Path('.ci-recruiter-data')); s,a=build_server(c, port=0);
+          print('Windows recruiter server port:', s.server_port); a.tasks.close(); s.server_close()"
+
   docker:
     # CLI/MCP 与招聘 Web 都必须构建；避免新的一键启动镜像在未被 CI 使用时静默腐烂。
     runs-on: ubuntu-latest
