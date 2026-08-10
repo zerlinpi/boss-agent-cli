@@ -13,9 +13,12 @@ def test_same_named_uploads_with_different_resume_content_do_not_collapse(tmp_pa
 	assert recruiter_store_module.candidate_key(first, _SOURCE) != recruiter_store_module.candidate_key(second, _SOURCE)
 
 
-def test_contact_identity_survives_resume_content_updates(tmp_path) -> None:
+def test_contact_identity_survives_resume_content_and_secondary_contact_updates(tmp_path) -> None:
 	RecruiterWebController(tmp_path)
 	first = {"name": "resume", "raw_text": "Python engineer. Phone: 13800000000. Built payments."}
-	second = {"name": "resume", "raw_text": "Python tech lead. Phone: 13800000000. Built risk systems."}
+	second = {
+		"name": "resume",
+		"raw_text": "Python tech lead. Phone: 13800000000. Email: candidate@example.com. Built risk systems.",
+	}
 
 	assert recruiter_store_module.candidate_key(first, _SOURCE) == recruiter_store_module.candidate_key(second, _SOURCE)
