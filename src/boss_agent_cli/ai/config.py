@@ -220,11 +220,11 @@ class AIConfigStore:
 		if base_url:
 			return str(base_url)
 		provider = config.get("ai_provider")
-		if provider in _LOCAL_PROVIDER_PORTS:
+		if isinstance(provider, str) and provider in _LOCAL_PROVIDER_PORTS:
 			local_host = os.getenv("BOSS_LOCAL_AI_HOST", "").strip()
 			if local_host and "://" not in local_host and "/" not in local_host:
-				return f"http://{local_host}:{_LOCAL_PROVIDER_PORTS[str(provider)]}/v1"
-		if provider and provider in PROVIDER_BASE_URLS:
+				return f"http://{local_host}:{_LOCAL_PROVIDER_PORTS[provider]}/v1"
+		if isinstance(provider, str) and provider in PROVIDER_BASE_URLS:
 			return PROVIDER_BASE_URLS[provider]
 		return None
 
