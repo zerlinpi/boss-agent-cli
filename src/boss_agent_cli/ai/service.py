@@ -18,6 +18,12 @@ import httpx
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 _MAX_ATTEMPTS = 3
 _MAX_RETRY_DELAY_SECONDS = 5.0
+_MAX_BASE_URL_CHARS = 2_048
+_MAX_API_KEY_CHARS = 8_192
+_MAX_MODEL_CHARS = 256
+_MAX_MESSAGES = 100
+_MAX_MESSAGE_CHARS = 500_000
+_MAX_TOTAL_MESSAGE_CHARS = 1_000_000
 _ORIGINAL_HTTPX_POST = httpx.post
 _SHARED_CLIENT: httpx.Client | None = None
 _SHARED_CLIENT_LOCK = Lock()
@@ -82,6 +88,8 @@ def _post(url: str, **kwargs: Any) -> httpx.Response:
 
 def _validated_base_url(value: str) -> str:
 	url = str(value or "").strip().rstrip("/")
+	if len(url) > _MAX_BASE_URL_CHARS:
+		raise AIServiceError(f"AI Base URL 过长，最多 {_MAX_BASE_URL_CHARS} 字符")
 	parsed = urlparse(url)
 	if parsed.scheme not in {"http", "https"} or not parsed.netloc:
 		raise AIServiceError("AI Base URL 必须是完整的 HTTP(S) 地址")
@@ -108,6 +116,9 @@ def _validated_max_tokens(value: Any) -> int:
 def _validated_messages(messages: Any) -> list[dict[str, Any]]:
 	if not isinstance(messages, list) or not messages:
 		raise AIServiceError("messages 必须是非空列表")
+	if len(messages) > _MAX_MESSAGES:
+		raise AIServiceError(f"messages 最多 {_MAX_MESSAGES} 条")
+	total_chars = 0
 	for index, message in enumerate(messages):
 		if not isinstance(message, dict):
 			raise AIServiceError(f"messages[{index}] 必须是对象")
@@ -115,8 +126,15 @@ def _validated_messages(messages: Any) -> list[dict[str, Any]]:
 		content = message.get("content")
 		if not isinstance(role, str) or not role.strip():
 			raise AIServiceError(f"messages[{index}].role 必须是非空字符串")
+		if len(role) > 64:
+			raise AIServiceError(f"messages[{index}].role 过长")
 		if not isinstance(content, str):
 			raise AIServiceError(f"messages[{index}].content 必须是字符串")
+		if len(content) > _MAX_MESSAGE_CHARS:
+			raise AIServiceError(f"messages[{index}].content 超过 {_MAX_MESSAGE_CHARS} 字符限制")
+		total_chars += len(content)
+		if total_chars > _MAX_TOTAL_MESSAGE_CHARS:
+			raise AIServiceError(f"messages 总内容超过 {_MAX_TOTAL_MESSAGE_CHARS} 字符限制")
 	return messages
 
 
@@ -149,8 +167,12 @@ class AIService:
 		self.model = str(model or "").strip()
 		if not self.api_key:
 			raise AIServiceError("API Key 不能为空")
+		if len(self.api_key) > _MAX_API_KEY_CHARS:
+			raise AIServiceError(f"API Key 过长，最多 {_MAX_API_KEY_CHARS} 字符")
 		if not self.model:
 			raise AIServiceError("模型名称不能为空")
+		if len(self.model) > _MAX_MODEL_CHARS:
+			raise AIServiceError(f"模型名称过长，最多 {_MAX_MODEL_CHARS} 字符")
 		self.temperature = _validated_temperature(temperature)
 		self.max_tokens = _validated_max_tokens(max_tokens)
 
