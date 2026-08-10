@@ -78,3 +78,31 @@ def test_candidate_status_rejects_structured_note_before_controller_call(tmp_pat
 		assert called is False
 	finally:
 		application.tasks.close()
+
+
+@pytest.mark.parametrize(
+	("path", "payload"),
+	[
+		("/api/jobs/analyze", {"jd_text": ["invalid"]}),
+		("/api/screen/local", {"job_key": "java", "documents": ["not-an-object"]}),
+		("/api/screen/local", {"job_key": "java", "documents": [{}], "force": "false"}),
+		("/api/screen/boss", {"job_key": "java", "job_id": "job-1", "pages": 1.5}),
+		("/api/screen/boss", {"job_key": "java", "job_id": {"id": "job-1"}}),
+	],
+)
+def test_malformed_async_jobs_are_rejected_before_task_submission(tmp_path, monkeypatch, path, payload) -> None:
+	application = _application(tmp_path)
+	submitted = False
+
+	def submit(*args, **kwargs):
+		nonlocal submitted
+		submitted = True
+		return {}
+
+	monkeypatch.setattr(application.tasks, "submit", submit)
+	try:
+		with pytest.raises(WebConsoleError):
+			application.post(path, payload)
+		assert submitted is False
+	finally:
+		application.tasks.close()
