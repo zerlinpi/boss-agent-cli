@@ -22,6 +22,7 @@ from boss_agent_cli.web.reply_extension import install_reply_assets
 from boss_agent_cli.web.reply_ordering import install_reply_ordering
 from boss_agent_cli.web.screening_cache import install_screening_cache
 from boss_agent_cli.web.task_controls import install_task_control_server, install_task_manager_controls
+from boss_agent_cli.web.task_result_safety import install_task_result_safety
 from boss_agent_cli.web.ui_extension import install_ui_reliability_assets
 from boss_agent_cli.web.upload_identity import install_web_upload_identity
 from boss_agent_cli.web.upload_policy import install_upload_policy
@@ -44,6 +45,7 @@ install_current_job_results()
 install_upload_policy()
 install_boss_draft_scope()
 install_task_manager_controls(_tasks)
+install_task_result_safety(_tasks)
 
 from boss_agent_cli.web import server as _server  # noqa: E402
 
