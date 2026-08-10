@@ -43,11 +43,7 @@ class AuthManager:
 		cdp_url: str | None = None,
 		force_cdp: bool = False,
 	) -> dict[str, Any]:
-		"""三级降级登录：Cookie 提取 → CDP 自动探测 → patchright 扫码。
-
-		Args:
-			force_cdp: 为 True 时跳过 Cookie 提取，CDP 不可用直接报错。
-		"""
+		"""登录降级链：Cookie → CDP → 可见 patchright 浏览器 → zhipin HTTP QR 备用。"""
 		method = "未知"
 		token: dict[str, Any] | None = None
 
@@ -82,39 +78,53 @@ class AuthManager:
 				self._store.save(token)
 				self._token = token
 				return {**token, "_method": method}
-			except Exception as e:
-				self._logger.info(f"CDP 登录失败（{e}），降级到 patchright")
+			except Exception as exc:
+				self._logger.info(f"CDP 登录失败（{exc}），降级到 patchright")
 		else:
-			self._logger.info("CDP 不可用，尝试 QR 纯 httpx 登录")
+			self._logger.info("CDP 不可用，降级到 patchright 可见浏览器")
 
-		# 第三步：QR 纯 httpx 登录（仅 zhipin）
+		# 第三步：优先打开用户真正看得见、可扫码的 patchright 浏览器。
+		browser_error: Exception | None = None
+		try:
+			token = login_via_browser(timeout=timeout, platform=self._platform)
+			method = "扫码登录"
+			self._store.save(token)
+			self._token = token
+			return {**token, "_method": method}
+		except Exception as exc:
+			browser_error = exc
+			self._logger.info(f"patchright 登录失败（{exc}）")
+
+		# 第四步：保留原 zhipin 纯 HTTP QR 作为最后备用，避免移除已有兼容通道。
 		if self._platform == "zhipin":
 			try:
-				self._logger.info("尝试 QR 纯 httpx 登录...")
+				self._logger.info("尝试 QR 纯 httpx 备用登录...")
 				token = qr_login_httpx(timeout=timeout)
 				method = "QR httpx 登录"
 				self._store.save(token)
 				self._token = token
 				return {**token, "_method": method}
-			except Exception as e:
-				self._logger.info(f"QR httpx 登录失败（{e}），降级到 patchright")
+			except Exception as exc:
+				self._logger.info(f"QR httpx 登录失败（{exc}）")
+				raise exc from browser_error
 
-		# 第四步：patchright 扫码（兜底）
-		token = login_via_browser(timeout=timeout, platform=self._platform)
-		method = "扫码登录"
-		self._store.save(token)
-		self._token = token
-		return {**token, "_method": method}
+		if browser_error is not None:
+			raise browser_error
+		raise RuntimeError("登录失败：没有可用的登录通道")
 
 	def _has_primary_cookie(self, token: dict[str, Any]) -> bool:
-		cookies = token.get("cookies", {})
+		cookies = token.get("cookies")
+		if not isinstance(cookies, dict):
+			return False
 		if self._platform == "zhilian":
 			return bool(cookies.get("at") or cookies.get("zp_token"))
-		primary_cookie = "wt2"
-		return bool(cookies.get(primary_cookie))
+		return bool(cookies.get("wt2"))
 
 	def _verify_cookie(self, token: dict[str, Any]) -> bool:
-		"""验证 Cookie 是否有效。"""
+		"""验证 Cookie 是否有效；异常或非对象响应一律按无效登录态处理。"""
+		cookies = token.get("cookies")
+		if not isinstance(cookies, dict):
+			return False
 		try:
 			import httpx
 			if self._platform == "zhilian":
@@ -127,17 +137,17 @@ class AuthManager:
 					headers["x-zp-client-id"] = str(client_id)
 				resp = httpx.get(
 					USER_INFO_URL,
-					cookies=token.get("cookies", {}),
+					cookies=cookies,
 					headers=headers,
 					timeout=10,
 				)
 				data = resp.json()
-				return bool(data.get("code") == 200)
+				return isinstance(data, dict) and data.get("code") == 200
 
 			from boss_agent_cli.api import endpoints
 			resp = httpx.get(
 				endpoints.USER_INFO_URL,
-				cookies=token.get("cookies", {}),
+				cookies=cookies,
 				headers={
 					"User-Agent": token.get("user_agent") or "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
 					"Referer": "https://www.zhipin.com/",
@@ -145,8 +155,8 @@ class AuthManager:
 				timeout=10,
 			)
 			data = resp.json()
-			return bool(data.get("code") == 0)
-		except (httpx.HTTPError, ValueError, KeyError):
+			return isinstance(data, dict) and data.get("code") == 0
+		except (httpx.HTTPError, ValueError, KeyError, TypeError):
 			return False
 
 	def force_refresh(self, cdp_url: str | None = None) -> None:
@@ -179,8 +189,8 @@ class AuthManager:
 				refreshed = {**current, "stoken": new_stoken}
 				self._store.save(refreshed)
 				self._token = refreshed
-			except Exception as e:
-				raise TokenRefreshFailed(f"Token 刷新失败: {e}") from e
+			except Exception as exc:
+				raise TokenRefreshFailed(f"Token 刷新失败: {exc}") from exc
 
 	def check_status(self) -> dict[str, Any] | None:
 		return self._store.load()
