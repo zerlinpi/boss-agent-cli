@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import statistics
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,7 @@ _ALLOWED_REPLY_INTENTS = {
 	"auto", "acknowledge", "ask_followup", "invite_interview", "clarify", "decline_draft",
 }
 _SCREEN_SEEN: ContextVar[set[str] | None] = ContextVar("boss_recruiter_screen_seen", default=None)
+_INTEGER_TEXT_RE = re.compile(r"^[+-]?\d+$")
 MAX_JD_CHARS = 100_000
 MAX_MODEL_NAME_CHARS = 256
 MAX_API_KEY_CHARS = 8_192
@@ -118,10 +120,19 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int, label:
 		return default
 	if isinstance(value, bool):
 		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是整数")
-	try:
+	if isinstance(value, int):
+		parsed = value
+	elif isinstance(value, float):
+		if not math.isfinite(value) or not value.is_integer():
+			raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是整数")
 		parsed = int(value)
-	except (TypeError, ValueError) as exc:
-		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是整数") from exc
+	elif isinstance(value, str):
+		text = value.strip()
+		if not _INTEGER_TEXT_RE.fullmatch(text):
+			raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是整数")
+		parsed = int(text)
+	else:
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是整数")
 	if not minimum <= parsed <= maximum:
 		raise controller_module.WebConsoleError(
 			"INVALID_PARAM", f"{label} 必须在 {minimum}-{maximum} 之间"
@@ -132,7 +143,7 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int, label:
 def _bounded_float(value: Any, *, default: float, minimum: float, maximum: float, label: str) -> float:
 	if value in (None, ""):
 		return default
-	if isinstance(value, bool):
+	if isinstance(value, bool) or isinstance(value, (list, dict, tuple, set)):
 		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是数字")
 	try:
 		parsed = float(value)
@@ -162,7 +173,12 @@ def _boolean(value: Any, *, default: bool = False, label: str) -> bool:
 
 
 def _bounded_text(value: Any, *, maximum: int, label: str, allow_empty: bool = True) -> str:
-	text = str(value or "").strip()
+	if value is None:
+		text = ""
+	elif isinstance(value, str):
+		text = value.strip()
+	else:
+		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是字符串")
 	if not allow_empty and not text:
 		raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 不能为空")
 	if len(text) > maximum:
@@ -261,6 +277,7 @@ def install_controller_reliability() -> None:
 
 	def screen_boss(self: Any, payload: dict[str, Any], *, progress: Any = None) -> dict[str, Any]:
 		clean = dict(payload)
+		clean["job_id"] = _bounded_text(clean.get("job_id"), maximum=256, label="BOSS 职位 ID", allow_empty=False)
 		clean["pages"] = _bounded_int(clean.get("pages"), default=1, minimum=1, maximum=10, label="pages")
 		clean["limit"] = _bounded_int(clean.get("limit"), default=30, minimum=1, maximum=100, label="limit")
 		clean["draft_top"] = _bounded_int(
@@ -276,12 +293,10 @@ def install_controller_reliability() -> None:
 
 	def generate_reply(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
 		clean = dict(payload)
-		intent = str(clean.get("intent") or "auto").strip()
+		intent = _bounded_text(clean.get("intent") or "auto", maximum=64, label="回复意图", allow_empty=False)
 		if intent not in _ALLOWED_REPLY_INTENTS:
 			raise controller_module.WebConsoleError("INVALID_REPLY_INPUT", f"不支持的回复意图: {intent}")
-		conversation = str(clean.get("conversation") or "")
-		if len(conversation) > 200_000:
-			raise controller_module.WebConsoleError("INVALID_REPLY_INPUT", "聊天上下文不能超过 200000 字符")
+		conversation = _bounded_text(clean.get("conversation"), maximum=200_000, label="聊天上下文")
 		clean["intent"] = intent
 		clean["conversation"] = conversation
 		return original_generate_reply(self, clean)
@@ -332,8 +347,8 @@ def install_controller_reliability() -> None:
 
 	def replies(self: Any, *, evaluation_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
 		try:
-			bounded_limit = max(1, min(int(limit), 500))
-		except (TypeError, ValueError):
+			bounded_limit = _bounded_int(limit, default=100, minimum=1, maximum=500, label="limit")
+		except controller_module.WebConsoleError:
 			bounded_limit = 100
 		items: list[dict[str, Any]] = []
 		for path in sorted(self.store.replies_dir.glob("reply_*.json"), reverse=True):
@@ -379,11 +394,7 @@ def install_server_reliability(server_module: Any) -> None:
 		clean = dict(payload)
 		clean["timeout"] = _bounded_int(clean.get("timeout"), default=180, minimum=30, maximum=600, label="timeout")
 		clean["force_cdp"] = _boolean(clean.get("force_cdp"), label="force_cdp")
-		cookie_source = clean.get("cookie_source")
-		if cookie_source is not None and not isinstance(cookie_source, str):
-			raise controller_module.WebConsoleError("INVALID_PARAM", "cookie_source 必须是字符串")
-		if isinstance(cookie_source, str) and len(cookie_source) > 64:
-			raise controller_module.WebConsoleError("INVALID_PARAM", "cookie_source 过长")
+		clean["cookie_source"] = _bounded_text(clean.get("cookie_source"), maximum=64, label="cookie_source")
 		return original_post(self, path, clean)
 
 	def build_server(controller: Any, *, host: str = "127.0.0.1", port: int = 8765) -> Any:
