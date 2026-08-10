@@ -30,17 +30,24 @@ def _delete_replies(store: RecruiterAIStore, evaluation_ids: set[str]) -> int:
 
 
 def delete_candidate_data(store: RecruiterAIStore, evaluation_id: str) -> dict[str, Any]:
-	"""Delete all local evaluations and replies for one logical candidate."""
+	"""Delete every version of one logical candidate within the target evaluation's job."""
 	target = store.get_evaluation(evaluation_id)
 	candidate_key = canonical_candidate_key(target)
+	job_key = str(target.get("job_key") or "")
 	if not candidate_key:
 		raise RecruiterAIError(f"候选人评估缺少 candidate_key: {evaluation_id}")
+	if not job_key:
+		raise RecruiterAIError(f"候选人评估缺少 job_key: {evaluation_id}")
 
 	paths: list[Path] = []
 	evaluation_ids: set[str] = set()
 	for path in store.evaluations_dir.glob("eval_*.json"):
 		payload = _read_object(path)
-		if payload is None or canonical_candidate_key(payload) != candidate_key:
+		if payload is None:
+			continue
+		if str(payload.get("job_key") or "") != job_key:
+			continue
+		if canonical_candidate_key(payload) != candidate_key:
 			continue
 		paths.append(path)
 		evaluation_ids.add(str(payload.get("id") or path.stem))
@@ -51,6 +58,7 @@ def delete_candidate_data(store: RecruiterAIStore, evaluation_id: str) -> dict[s
 		path.unlink(missing_ok=True)
 	return {
 		"evaluation_id": evaluation_id,
+		"job_key": job_key,
 		"candidate_key": candidate_key,
 		"deleted_evaluation_ids": sorted(evaluation_ids),
 		"evaluation_count": len(paths),
