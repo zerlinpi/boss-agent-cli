@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import weakref
+from collections.abc import Mapping as MappingABC
 from typing import Any, Callable, Mapping, MutableMapping
 
 
@@ -50,10 +51,19 @@ def merge_response_cookies(http_client: Any, response: Any) -> None:
 
 
 def add_stoken_to_get_params(method: str, kwargs: MutableMapping[str, Any], stoken: str) -> None:
-	"""Inject BOSS __zp_stoken__ into GET request params in-place."""
-	if method != "GET":
+	"""Inject BOSS __zp_stoken__ into GET params without mutating the caller's mapping."""
+	if str(method).upper() != "GET":
 		return
-	params = kwargs.get("params", {})
+	raw_params = kwargs.get("params")
+	if raw_params is None:
+		params: dict[str, Any] = {}
+	elif isinstance(raw_params, MappingABC):
+		params = dict(raw_params)
+	else:
+		try:
+			params = dict(raw_params)
+		except (TypeError, ValueError) as exc:
+			raise TypeError("GET params 必须是 mapping 或键值对序列") from exc
 	params["__zp_stoken__"] = stoken
 	kwargs["params"] = params
 
