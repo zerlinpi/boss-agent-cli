@@ -10,6 +10,7 @@ from typing import Any, Iterable, Iterator
 _CONFIG_LOCK_TIMEOUT = 5.0
 _CONFIG_STALE_LOCK_SECONDS = 60.0
 _LOG_LEVELS = {"debug", "info", "warning", "error"}
+_ROLES = {"candidate", "recruiter"}
 
 DEFAULTS: dict[str, Any] = {
 	"request_delay": [1.5, 3.0],
@@ -92,10 +93,11 @@ def _normalize_runtime_config(cfg: dict[str, Any]) -> dict[str, Any]:
 		value = cfg.get(key)
 		if value is not None and not isinstance(value, str):
 			cfg[key] = DEFAULTS[key]
-	for key in ("platform", "role"):
-		value = cfg.get(key)
-		if not isinstance(value, str) or not value.strip():
-			cfg[key] = DEFAULTS[key]
+	platform_value = cfg.get("platform")
+	if not isinstance(platform_value, str) or not platform_value.strip():
+		cfg["platform"] = DEFAULTS["platform"]
+	if cfg.get("role") not in _ROLES:
+		cfg["role"] = DEFAULTS["role"]
 	for key in ("automation", "crawl"):
 		if not isinstance(cfg.get(key), dict):
 			cfg[key] = deepcopy(DEFAULTS[key])
