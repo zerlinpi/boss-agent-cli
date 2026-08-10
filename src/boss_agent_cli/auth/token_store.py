@@ -11,10 +11,39 @@ from pathlib import Path
 from typing import Any, Iterator, cast
 
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 _LOCK_TIMEOUT = 30
+
+
+def _chmod_private(path: Path) -> None:
+	try:
+		path.chmod(0o600)
+	except OSError:
+		pass
+
+
+def _atomic_write_private(path: Path, data: bytes) -> None:
+	"""Atomically replace sensitive bytes with owner-only permissions where supported."""
+	temporary = path.with_name(f".{path.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
+	fd: int | None = None
+	try:
+		fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+		with os.fdopen(fd, "wb") as handle:
+			fd = None
+			handle.write(data)
+			handle.flush()
+			os.fsync(handle.fileno())
+		os.replace(temporary, path)
+		_chmod_private(path)
+	finally:
+		if fd is not None:
+			os.close(fd)
+		try:
+			temporary.unlink()
+		except FileNotFoundError:
+			pass
 
 
 class TokenStore:
@@ -46,7 +75,9 @@ class TokenStore:
 			elif system == "Linux":
 				machine_id = Path("/etc/machine-id")
 				if machine_id.exists():
-					return machine_id.read_text().strip()
+					value = machine_id.read_text().strip()
+					if value:
+						return value
 			elif system == "Windows":
 				if shutil.which("reg"):
 					result = subprocess.run(
@@ -71,9 +102,25 @@ class TokenStore:
 
 	def _get_salt(self) -> bytes:
 		if self._salt_path.exists():
-			return self._salt_path.read_bytes()
+			salt = self._salt_path.read_bytes()
+			if len(salt) >= 16:
+				_chmod_private(self._salt_path)
+				return salt
+			# A truncated salt cannot decrypt the old session. Remove both sides of the broken pair
+			# instead of deriving a new key from corrupt bytes and failing unpredictably later.
+			self._session_path.unlink(missing_ok=True)
+			self._salt_path.unlink(missing_ok=True)
+
 		salt = os.urandom(16)
-		self._salt_path.write_bytes(salt)
+		try:
+			fd = os.open(self._salt_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+		except FileExistsError:
+			return self._get_salt()
+		with os.fdopen(fd, "wb") as handle:
+			handle.write(salt)
+			handle.flush()
+			os.fsync(handle.fileno())
+		_chmod_private(self._salt_path)
 		return salt
 
 	def _derive_key(self) -> bytes:
@@ -92,20 +139,21 @@ class TokenStore:
 		fernet = Fernet(self._derive_key())
 		plaintext = json.dumps(token_data, ensure_ascii=False).encode()
 		encrypted = fernet.encrypt(plaintext)
-		self._session_path.write_bytes(encrypted)
+		_atomic_write_private(self._session_path, encrypted)
 
 	def load(self) -> dict[str, Any] | None:
 		if not self._session_path.exists():
 			return None
-		fernet = Fernet(self._derive_key())
-		encrypted = self._session_path.read_bytes()
 		try:
+			fernet = Fernet(self._derive_key())
+			encrypted = self._session_path.read_bytes()
 			plaintext = fernet.decrypt(encrypted)
 			decoded = json.loads(plaintext)
-		except (InvalidToken, ValueError, TypeError, json.JSONDecodeError):
+		except (InvalidToken, ValueError, TypeError, json.JSONDecodeError, OSError, UnicodeDecodeError):
 			return None
 		if not isinstance(decoded, dict):
 			return None
+		_chmod_private(self._session_path)
 		return cast("dict[str, Any]", decoded)
 
 	def clear(self) -> None:
@@ -119,7 +167,7 @@ class TokenStore:
 		fd = None
 		while True:
 			try:
-				fd = os.open(str(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+				fd = os.open(str(self._lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
 				break  # 成功获取锁
 			except FileExistsError:
 				if time.time() > deadline:
