@@ -14,6 +14,9 @@ def test_recruiter_app_asset_contains_write_deduplication_keyboard_freshness_and
 		assert "taskPollers" in text
 		assert "multiTaskWatch" in text
 		assert "latestWatchedTask" in text
+		assert "MAX_TASK_POLL_FAILURES" in text
+		assert "entry.failures = 0" in text
+		assert "state.taskCallbacks.delete(id)" in text
 		assert "accessibleRenderKanban" in text
 		assert "aria-label" in text
 		assert 'event.key === "Escape"' in text
