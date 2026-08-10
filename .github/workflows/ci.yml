@@ -180,8 +180,16 @@ jobs:
           tests/test_ai_config.py
           tests/test_ai_config_migration.py
           tests/test_api_response_boundaries.py
+          tests/test_browser_response_safety.py
+          tests/test_httpx_helper_safety.py
+          tests/test_login_recovery_hints.py
+          tests/test_cli_runtime_boundaries.py
+          tests/test_config_recovery.py
+          tests/test_config_atomic_updates.py
+          tests/test_config_value_validation.py
           tests/test_recruiter_container_auth.py
           tests/test_recruiter_container_identity.py
+          tests/test_recruiter_task_result_safety.py
           tests/test_recruiter_web_upload_identity.py
           tests/test_zhilian_reliability.py
 
