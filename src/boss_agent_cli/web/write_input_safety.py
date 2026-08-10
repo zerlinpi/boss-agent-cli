@@ -8,7 +8,8 @@ from typing import Any, Callable
 
 from boss_agent_cli.web import controller as controller_module
 
-_INSTALLED = False
+_CONTROLLER_INSTALLED = False
+_SERVER_INSTALLED = False
 _INTEGER_TEXT_RE = re.compile(r"^[+-]?\d+$")
 _MAX_JD_CHARS = 100_000
 
@@ -52,6 +53,26 @@ def _boolean(value: Any, *, label: str, default: bool = False) -> bool:
 	raise controller_module.WebConsoleError("INVALID_PARAM", f"{label} 必须是布尔值")
 
 
+def _normalize_bulk_payload(payload: dict[str, Any]) -> dict[str, Any]:
+	clean = dict(payload)
+	identifiers = clean.get("evaluation_ids")
+	if not isinstance(identifiers, list) or not identifiers:
+		raise controller_module.WebConsoleError("INVALID_BULK_INPUT", "请选择至少一位候选人")
+	if len(identifiers) > 100:
+		raise controller_module.WebConsoleError("INVALID_BULK_INPUT", "单次最多操作 100 位候选人")
+	unique: list[str] = []
+	seen: set[str] = set()
+	for value in identifiers:
+		identifier = _text(value, label="候选人评估 ID", maximum=160)
+		if identifier not in seen:
+			seen.add(identifier)
+			unique.append(identifier)
+	clean["evaluation_ids"] = unique
+	clean["status"] = _text(clean.get("status"), label="候选人状态", maximum=64)
+	clean["note"] = _text(clean.get("note", ""), label="候选人备注", maximum=5000, allow_empty=True)
+	return clean
+
+
 def _preflight_async(path: str, clean: dict[str, Any]) -> None:
 	if path == "/api/jobs/analyze":
 		clean["jd_text"] = _text(clean.get("jd_text"), label="JD", maximum=_MAX_JD_CHARS)
@@ -81,12 +102,43 @@ def _preflight_async(path: str, clean: dict[str, Any]) -> None:
 		clean["include_chat"] = _boolean(clean.get("include_chat"), label="include_chat")
 
 
+def install_controller_write_input_safety() -> None:
+	"""Apply the same destructive/state validation to direct controller callers."""
+	global _CONTROLLER_INSTALLED
+	if _CONTROLLER_INSTALLED:
+		return
+	_CONTROLLER_INSTALLED = True
+
+	controller_cls = controller_module.RecruiterWebController
+	original_save_job: Callable[..., dict[str, Any]] = controller_cls.save_job
+	original_mark: Callable[..., dict[str, Any]] = controller_cls.mark_candidate
+	original_bulk: Callable[..., dict[str, Any]] = controller_cls.bulk_mark_candidates
+
+	def save_job(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+		clean = dict(payload)
+		if "_delete" in clean:
+			clean["_delete"] = _boolean(clean.get("_delete"), label="_delete")
+		return original_save_job(self, clean)
+
+	def mark_candidate(self: Any, evaluation_id: str, status: str, note: str = "") -> dict[str, Any]:
+		clean_status = _text(status, label="候选人状态", maximum=64)
+		clean_note = _text(note, label="候选人备注", maximum=5000, allow_empty=True)
+		return original_mark(self, evaluation_id, clean_status, note=clean_note)
+
+	def bulk_mark_candidates(self: Any, payload: dict[str, Any]) -> dict[str, Any]:
+		return original_bulk(self, _normalize_bulk_payload(payload))
+
+	setattr(controller_cls, "save_job", save_job)
+	setattr(controller_cls, "mark_candidate", mark_candidate)
+	setattr(controller_cls, "bulk_mark_candidates", bulk_mark_candidates)
+
+
 def install_write_input_safety(server_module: Any) -> None:
 	"""Reject ambiguous or malformed writes before routing or background task creation."""
-	global _INSTALLED
-	if _INSTALLED:
+	global _SERVER_INSTALLED
+	if _SERVER_INSTALLED:
 		return
-	_INSTALLED = True
+	_SERVER_INSTALLED = True
 
 	application_cls = server_module.RecruiterWebApplication
 	original_post: Callable[..., Any] = application_cls.post
@@ -96,32 +148,13 @@ def install_write_input_safety(server_module: Any) -> None:
 		_preflight_async(path, clean)
 
 		if path == "/api/jobs" and "_delete" in clean:
-			delete_flag = clean.get("_delete")
-			if not isinstance(delete_flag, bool):
-				raise controller_module.WebConsoleError(
-					"INVALID_PARAM", "_delete 必须是布尔值；只有 true 才表示永久删除"
-				)
-			clean["_delete"] = delete_flag
+			clean["_delete"] = _boolean(clean.get("_delete"), label="_delete")
 
 		if path == "/api/settings/mode" and "mode" in clean:
 			clean["mode"] = _text(clean.get("mode"), label="运行模式", maximum=32)
 
 		if path == "/api/candidates/bulk-status":
-			identifiers = clean.get("evaluation_ids")
-			if not isinstance(identifiers, list) or not identifiers:
-				raise controller_module.WebConsoleError("INVALID_BULK_INPUT", "请选择至少一位候选人")
-			if len(identifiers) > 100:
-				raise controller_module.WebConsoleError("INVALID_BULK_INPUT", "单次最多操作 100 位候选人")
-			unique: list[str] = []
-			seen: set[str] = set()
-			for value in identifiers:
-				identifier = _text(value, label="候选人评估 ID", maximum=160)
-				if identifier not in seen:
-					seen.add(identifier)
-					unique.append(identifier)
-			clean["evaluation_ids"] = unique
-			clean["status"] = _text(clean.get("status"), label="候选人状态", maximum=64)
-			clean["note"] = _text(clean.get("note", ""), label="候选人备注", maximum=5000, allow_empty=True)
+			clean = _normalize_bulk_payload(clean)
 
 		if path.startswith("/api/candidates/") and path.endswith("/status"):
 			clean["status"] = _text(clean.get("status"), label="候选人状态", maximum=64)
