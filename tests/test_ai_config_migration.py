@@ -1,3 +1,5 @@
+import json
+
 from cryptography.fernet import Fernet
 
 from boss_agent_cli.ai.config import AIConfigStore
@@ -29,3 +31,11 @@ def test_local_ai_provider_can_target_docker_host(tmp_path, monkeypatch) -> None
 
 	store.save_config(ai_provider="vllm")
 	assert store.get_base_url() == "http://host.docker.internal:8000/v1"
+
+
+def test_malformed_provider_value_does_not_break_bootstrap_resolution(tmp_path, monkeypatch) -> None:
+	monkeypatch.setenv("BOSS_AGENT_MACHINE_ID", "test-machine")
+	store = AIConfigStore(tmp_path)
+	store._config_path.write_text(json.dumps({"ai_provider": ["ollama"]}), encoding="utf-8")
+
+	assert store.get_base_url() is None
