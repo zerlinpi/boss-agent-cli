@@ -4,6 +4,7 @@
 	const MAX_RECRUITER_FILES = 100;
 	const MAX_RECRUITER_FILE_BYTES = 12 * 1024 * 1024;
 	const inFlightWrites = new Map();
+	const taskPollers = new Map();
 
 	const originalApi = api;
 	api = function reliableApi(path, options = {}) {
@@ -19,6 +20,91 @@
 		inFlightWrites.set(key, request);
 		return request;
 	};
+
+	function latestWatchedTask(exclude = "") {
+		const ids = [...taskPollers.keys()].filter(id => id !== exclude);
+		return ids.length ? ids[ids.length - 1] : null;
+	}
+
+	async function renderWatchedTask(id) {
+		if (!id) return;
+		try {
+			const task = await api(`/api/tasks/${encodeURIComponent(id)}`);
+			if (state.activeTask === id) renderTask(task);
+		} catch {
+			// The next normal poll or activity refresh will surface a persistent problem.
+		}
+	}
+
+	watchTask = function multiTaskWatch(id) {
+		if (!id) return;
+		state.activeTask = id;
+		$("#task-banner").classList.remove("hidden");
+		const existing = taskPollers.get(id);
+		if (existing) {
+			void renderWatchedTask(id);
+			return;
+		}
+
+		const entry = { timer: null, polling: false };
+		taskPollers.set(id, entry);
+		const finish = async task => {
+			if (entry.timer) clearInterval(entry.timer);
+			taskPollers.delete(id);
+			const callback = state.taskCallbacks.get(id);
+			state.taskCallbacks.delete(id);
+
+			if (task.status === "completed") {
+				if (callback) {
+					try { callback(task.result || {}); }
+					catch (error) { toast(error.message || "任务完成回调执行失败", "error"); }
+				}
+				if (["screen-local", "screen-boss"].includes(task.kind)) renderScreenResult(task.result || {});
+				toast("任务执行完成");
+			} else {
+				toast(task.error?.message || "任务执行失败", "error");
+			}
+
+			try { await bootstrap(); }
+			catch { /* bootstrap already reports its own error */ }
+
+			if (state.activeTask === id) {
+				const next = latestWatchedTask(id);
+				state.activeTask = next;
+				if (next) {
+					await renderWatchedTask(next);
+				} else {
+					setTimeout(() => {
+						if (!state.activeTask && taskPollers.size === 0) $("#task-banner").classList.add("hidden");
+					}, 2500);
+				}
+			}
+		};
+
+		const poll = async () => {
+			if (entry.polling) return;
+			entry.polling = true;
+			try {
+				const task = await api(`/api/tasks/${encodeURIComponent(id)}`);
+				if (state.activeTask === id) renderTask(task);
+				if (["completed", "failed"].includes(task.status)) await finish(task);
+			} catch (error) {
+				if (entry.timer) clearInterval(entry.timer);
+				taskPollers.delete(id);
+				if (state.activeTask === id) {
+					state.activeTask = latestWatchedTask(id);
+					if (!state.activeTask) $("#task-banner").classList.add("hidden");
+				}
+				toast(error.message || "任务状态读取失败", "error");
+			} finally {
+				entry.polling = false;
+			}
+		};
+
+		entry.timer = setInterval(() => { void poll(); }, 1000);
+		void poll();
+	};
+	state.pollTimer = null;
 
 	async function safeCopy(text) {
 		if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
