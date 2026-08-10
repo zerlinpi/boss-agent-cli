@@ -19,7 +19,11 @@ def install_contact_assets(server_module: Any) -> None:
     def asset(self: Any, name: str) -> tuple[bytes, str]:
         content, content_type = original_asset(self, name)
         if name == "app.js":
-            content += b"\n" + files("boss_agent_cli.web.assets").joinpath("contact_retention.js").read_bytes()
+            assets = files("boss_agent_cli.web.assets")
+            content += b"\n" + assets.joinpath("contact_retention.js").read_bytes()
+            # Loaded before later UI wrappers, but the script installs its outermost result guard on
+            # window.load so it can scope background screening results without clearing active-job UI.
+            content += b"\n" + assets.joinpath("ui_result_context.js").read_bytes()
         elif name == "styles.css":
             content += b"\n" + files("boss_agent_cli.web.assets").joinpath("contact_retention.css").read_bytes()
         return content, content_type
