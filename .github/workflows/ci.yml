@@ -250,7 +250,9 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:18765/ >/tmp/recruiter-home.html
           grep -q 'BOSS' /tmp/recruiter-home.html
           curl --fail --silent --show-error http://127.0.0.1:18765/app.js >/tmp/recruiter-app.js
-          token="$(python3 -c "import re; t=open('/tmp/recruiter-app.js', encoding='utf-8').read(); m=re.search(r'const TOKEN = \\"([^\\"]+)\\";', t); assert m and m.group(1) != '__BOSS_WEB_TOKEN__'; print(m.group(1))")"
+          token="$(sed -n 's/^const TOKEN = "\([^"]*\)";$/\1/p' /tmp/recruiter-app.js | head -n 1)"
+          test -n "$token"
+          test "$token" != "__BOSS_WEB_TOKEN__"
           curl --fail --silent --show-error \
             -H "X-Boss-Web-Token: $token" \
             http://127.0.0.1:18765/api/bootstrap >/tmp/recruiter-bootstrap.json
