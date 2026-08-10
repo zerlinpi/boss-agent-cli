@@ -43,10 +43,12 @@
 	};
 
 	const originalApplyBootstrap = applyBootstrap;
-	applyBootstrap = function applyBootstrapWithCancellingTask() {
+	applyBootstrap = function applyBootstrapWithActiveTasks() {
 		originalApplyBootstrap();
-		const cancelling = state.tasks.find(task => task.status === "cancelling");
-		if (cancelling && cancelling.id !== state.activeTask) watchTask(cancelling.id);
+		const activeTasks = state.tasks.filter(task => ["queued", "running", "cancelling"].includes(task.status));
+		for (const task of activeTasks) {
+			if (task?.id) watchTask(task.id);
+		}
 	};
 
 	ensureTaskCancelButton();
