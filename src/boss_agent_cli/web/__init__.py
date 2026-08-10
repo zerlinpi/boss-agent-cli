@@ -19,6 +19,7 @@ from boss_agent_cli.web.job_analysis_safety import install_job_analysis_safety
 from boss_agent_cli.web.lifecycle import install_controller_extensions, install_server_extensions
 from boss_agent_cli.web.reliability import install_controller_reliability, install_server_reliability
 from boss_agent_cli.web.reply_extension import install_reply_assets
+from boss_agent_cli.web.reply_ordering import install_reply_ordering
 from boss_agent_cli.web.screening_cache import install_screening_cache
 from boss_agent_cli.web.task_controls import install_task_control_server, install_task_manager_controls
 from boss_agent_cli.web.ui_extension import install_ui_reliability_assets
@@ -34,6 +35,7 @@ install_controller_extensions()
 install_web_upload_identity()
 install_container_auth_guard()
 install_controller_reliability()
+install_reply_ordering()
 install_controller_write_input_safety()
 install_candidate_freshness()
 install_job_analysis_safety()
