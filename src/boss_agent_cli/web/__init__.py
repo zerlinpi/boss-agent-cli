@@ -5,6 +5,7 @@ from boss_agent_cli.web import tasks as _tasks
 from boss_agent_cli.web.boss_draft_scope import install_boss_draft_scope
 from boss_agent_cli.web.candidate_freshness import install_candidate_freshness
 from boss_agent_cli.web.contact_extension import install_contact_assets
+from boss_agent_cli.web.container_auth import install_container_auth_guard
 from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleError
 from boss_agent_cli.web.current_job_results import (
 	install_current_job_result_assets,
@@ -31,6 +32,7 @@ from boss_agent_cli.web.write_input_safety import (
 install_export_security(_controller)
 install_controller_extensions()
 install_web_upload_identity()
+install_container_auth_guard()
 install_controller_reliability()
 install_controller_write_input_safety()
 install_candidate_freshness()
