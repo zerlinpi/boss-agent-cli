@@ -42,7 +42,7 @@ class BossCliGroup(click.Group):
 				code="INVALID_PARAM",
 				message=exc.format_message(),
 				recoverable=False,
-				recovery_action="修正参数",
+				recovery_action="修正参数或本地运行环境",
 			)
 			return None
 
@@ -76,7 +76,10 @@ def _parse_delay_range(value: str) -> tuple[float, float]:
 def cli(ctx: click.Context, data_dir: str, delay: str | None, cdp_url: str | None, platform_name: str | None, role: str | None, log_level: str | None, json_output: bool) -> None:
 	ctx.ensure_object(dict)
 	resolved_dir = Path(data_dir).expanduser()
-	resolved_dir.mkdir(parents=True, exist_ok=True)
+	try:
+		resolved_dir.mkdir(parents=True, exist_ok=True)
+	except OSError as exc:
+		raise click.ClickException(f"无法创建或访问数据目录 {resolved_dir}: {exc}") from exc
 	ctx.obj["data_dir"] = resolved_dir
 	ctx.obj["json_output"] = json_output
 
