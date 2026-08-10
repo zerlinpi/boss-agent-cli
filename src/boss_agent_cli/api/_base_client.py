@@ -16,7 +16,7 @@ from __future__ import annotations
 import random
 import time
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
 
@@ -71,13 +71,27 @@ class _BaseHttpClient:
 
 	# ── Lazy channels ────────────────────────────────────────────────
 
+	def _validated_token(self) -> tuple[dict[str, Any], dict[str, str]]:
+		token = self._auth.get_token()
+		cookies = token.get("cookies")
+		if not isinstance(cookies, dict):
+			raise self._AUTH_ERROR_CLS("本地登录态损坏：cookies 不是对象，请重新登录")
+		safe_cookies = {
+			str(name): str(value)
+			for name, value in cookies.items()
+			if isinstance(name, str) and isinstance(value, (str, int, float))
+		}
+		if not safe_cookies:
+			raise self._AUTH_ERROR_CLS("本地登录态缺少有效 Cookie，请重新登录")
+		return token, safe_cookies
+
 	def _get_client(self) -> httpx.Client:
 		if self._client is None:
-			token = self._auth.get_token()
+			token, cookies = self._validated_token()
 			headers = browser_headers(self._DEFAULT_HEADERS, token)
 			self._client = httpx.Client(
 				base_url=self._BASE_URL,
-				cookies=token.get("cookies", {}),
+				cookies=cookies,
 				headers=headers,
 				follow_redirects=True,
 				timeout=30,
@@ -88,10 +102,10 @@ class _BaseHttpClient:
 		if self._browser_session is None:
 			from boss_agent_cli.api.browser_client import BrowserSession
 
-			token = self._auth.get_token()
+			token, cookies = self._validated_token()
 			self._browser_session = BrowserSession(
-				cookies=token.get("cookies", {}),
-				user_agent=token.get("user_agent", ""),
+				cookies=cookies,
+				user_agent=str(token.get("user_agent") or ""),
 				delay=self._delay,
 				cdp_url=self._cdp_url,
 				logger=getattr(self._auth, "_logger", None),
@@ -136,7 +150,12 @@ class _BaseHttpClient:
 				continue
 
 			resp.raise_for_status()
-			data = resp.json()
+			try:
+				data = resp.json()
+			except (ValueError, TypeError) as exc:
+				raise self._AUTH_ERROR_CLS("平台返回无法解析的 JSON 响应，请稍后重试") from exc
+			if not isinstance(data, dict):
+				raise self._AUTH_ERROR_CLS("平台返回了非对象 JSON 响应，请稍后重试")
 			code = data.get("code")
 
 			# stoken 过期 → 刷新重试
@@ -153,9 +172,9 @@ class _BaseHttpClient:
 				time.sleep(cooldown)
 				continue
 
-			if self._ADD_ENDPOINT_HINT and isinstance(data, dict):
+			if self._ADD_ENDPOINT_HINT:
 				data.setdefault("__cli_endpoint_hint__", url)
-			return cast("dict[str, Any]", data)
+			return data
 
 		raise self._AUTH_ERROR_CLS("请求失败，已达最大重试次数")
 
