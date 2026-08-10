@@ -4,8 +4,11 @@
 	const MAX_RECRUITER_FILES = 100;
 	const MAX_RECRUITER_FILE_BYTES = 12 * 1024 * 1024;
 	const MAX_TASK_POLL_FAILURES = 3;
+	const MAX_CANDIDATE_DETAIL_CACHE = 100;
 	const inFlightWrites = new Map();
 	const taskPollers = new Map();
+	let jobAnalysisGeneration = 0;
+	let detailCacheJob = state.activeJob;
 
 	const originalApi = api;
 	api = function reliableApi(path, options = {}) {
@@ -110,6 +113,82 @@
 		void poll();
 	};
 	state.pollTimer = null;
+
+	function pruneCandidateDetailCache(activeId = "") {
+		if (activeId && state.candidateDetails.has(activeId)) {
+			const value = state.candidateDetails.get(activeId);
+			state.candidateDetails.delete(activeId);
+			state.candidateDetails.set(activeId, value);
+		}
+		while (state.candidateDetails.size > MAX_CANDIDATE_DETAIL_CACHE) {
+			const oldest = state.candidateDetails.keys().next().value;
+			if (oldest === undefined) break;
+			state.candidateDetails.delete(oldest);
+		}
+	}
+
+	const originalApplyBootstrap = applyBootstrap;
+	applyBootstrap = function reliableApplyBootstrap() {
+		if (detailCacheJob !== state.activeJob) {
+			state.candidateDetails.clear();
+			detailCacheJob = state.activeJob;
+		}
+		return originalApplyBootstrap();
+	};
+
+	const originalSelectJob = selectJob;
+	selectJob = function reliableSelectJob(key) {
+		if (key !== state.activeJob) {
+			state.candidateDetails.clear();
+			detailCacheJob = key;
+		}
+		return originalSelectJob(key);
+	};
+
+	const originalOpenCandidate = openCandidate;
+	openCandidate = async function boundedOpenCandidate(id) {
+		await originalOpenCandidate(id);
+		pruneCandidateDetailCache(id);
+	};
+
+	async function safeAnalyzeJob() {
+		const form = $("#job-form");
+		const jdText = form.elements.jd_text.value.trim();
+		if (jdText.length < 30) { toast("请先填写完整岗位 JD", "error"); return; }
+		const jobKey = form.elements.job_key.value.trim();
+		const generation = ++jobAnalysisGeneration;
+		const button = $("#analyze-jd-button");
+		button.disabled = true;
+		button.textContent = "正在提交分析…";
+		try {
+			const task = await api("/api/jobs/analyze", {
+				method: "POST",
+				body: JSON.stringify({ jd_text: jdText }),
+			});
+			state.taskCallbacks.set(task.id, result => {
+				const sameRequest = generation === jobAnalysisGeneration;
+				const sameJob = form.elements.job_key.value.trim() === jobKey;
+				const sameJd = form.elements.jd_text.value.trim() === jdText;
+				const editorOpen = !$("#job-editor").classList.contains("hidden");
+				if (!sameRequest || !sameJob || !sameJd || !editorOpen) {
+					toast("岗位内容已在分析期间发生变化，本次 AI 结果未覆盖当前表单", "error");
+					return;
+				}
+				if (result.title && !form.elements.title.value.trim()) form.elements.title.value = result.title;
+				form.elements.rubric.value = JSON.stringify(result.rubric || {}, null, 2);
+				const panel = $("#job-analysis");
+				panel.classList.remove("hidden");
+				panel.innerHTML = `<strong>岗位画像</strong><p>${escapeHtml(result.persona_summary || "已生成评分规则")}</p>${Array.isArray(result.suggested_questions) && result.suggested_questions.length ? `<div class="chip-list">${result.suggested_questions.map(item => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>` : ""}`;
+			});
+			watchTask(task.id);
+			toast("岗位分析任务已启动");
+		} catch (error) {
+			toast(error.message, "error");
+		} finally {
+			button.disabled = false;
+			button.textContent = "AI 分析 JD";
+		}
+	}
 
 	async function safeCopy(text) {
 		if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
@@ -227,6 +306,14 @@
 			if (typeof toast === "function") {
 				toast(copied ? "已复制到剪贴板" : "复制失败，请手动选择文本", copied ? "success" : "error");
 			}
+			return;
+		}
+
+		const analyzeButton = event.target.closest("#analyze-jd-button");
+		if (analyzeButton) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			await safeAnalyzeJob();
 			return;
 		}
 
