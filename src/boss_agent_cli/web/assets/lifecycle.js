@@ -50,12 +50,12 @@ renderCandidateDrawer = function renderCandidateDrawerWithLifecycle(record) {
 	if (!container || container.querySelector('[data-action="delete-candidate"]')) return;
 	const section = document.createElement('section');
 	section.className = 'detail-section danger-zone';
-	section.innerHTML = `<div><h3>删除本地数据</h3><p>清理该候选人的全部历史评估和关联回复草稿。此操作不可撤销。</p></div><button class="button danger-subtle" data-action="delete-candidate" data-evaluation-id="${escapeHtml(record.id)}">永久删除</button>`;
+	section.innerHTML = `<div><h3>删除本地数据</h3><p>清理该候选人在当前岗位下的全部历史评估和关联回复草稿。其他岗位中的同一候选人不会被删除。此操作不可撤销。</p></div><button class="button danger-subtle" data-action="delete-candidate" data-evaluation-id="${escapeHtml(record.id)}">永久删除</button>`;
 	container.append(section);
 };
 
 async function deleteCandidateLocal(evaluationId) {
-	if (!window.confirm('确认删除该候选人的全部本地评估和回复数据？此操作不可撤销。')) return;
+	if (!window.confirm('确认删除该候选人在当前岗位下的全部本地评估和回复数据？其他岗位数据会保留，此操作不可撤销。')) return;
 	try {
 		const result = await api(`/api/candidates/${encodeURIComponent(evaluationId)}/status`, {
 			method: 'POST', body: JSON.stringify({ status: '__delete__', note: '' }),
