@@ -3,6 +3,7 @@
 from boss_agent_cli.web import controller as _controller
 from boss_agent_cli.web import tasks as _tasks
 from boss_agent_cli.web.boss_draft_scope import install_boss_draft_scope
+from boss_agent_cli.web.candidate_freshness import install_candidate_freshness
 from boss_agent_cli.web.contact_extension import install_contact_assets
 from boss_agent_cli.web.controller import RecruiterWebController, WebConsoleError
 from boss_agent_cli.web.current_job_results import (
@@ -24,6 +25,7 @@ from boss_agent_cli.web.upload_policy import install_upload_policy
 install_export_security(_controller)
 install_controller_extensions()
 install_controller_reliability()
+install_candidate_freshness()
 install_job_analysis_safety()
 install_screening_cache()
 install_current_job_results()
