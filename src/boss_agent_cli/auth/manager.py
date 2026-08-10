@@ -3,7 +3,6 @@ from typing import Any
 
 from boss_agent_cli.auth.browser import login_via_browser, login_via_cdp, probe_cdp, refresh_stoken, refresh_stoken_via_cdp
 from boss_agent_cli.auth.cookie_extract import extract_cookies
-from boss_agent_cli.auth.qr_login import qr_login_httpx
 from boss_agent_cli.auth.token_store import RefreshLockBusy, TokenStore
 from boss_agent_cli.output import Logger
 
@@ -43,18 +42,16 @@ class AuthManager:
 		cdp_url: str | None = None,
 		force_cdp: bool = False,
 	) -> dict[str, Any]:
-		"""登录降级链：Cookie → CDP → 可见 patchright 浏览器 → zhipin HTTP QR 备用。"""
-		method = "未知"
+		"""登录降级链：Cookie → CDP → 可见 patchright 浏览器。"""
 		token: dict[str, Any] | None = None
 
 		if force_cdp:
 			# --cdp 强制模式：跳过 Cookie，CDP 不可用直接抛异常
 			self._logger.info("强制 CDP 模式，跳过 Cookie 提取")
 			token = login_via_cdp(cdp_url=cdp_url, timeout=timeout, platform=self._platform)
-			method = "CDP 扫码"
 			self._store.save(token)
 			self._token = token
-			return {**token, "_method": method}
+			return {**token, "_method": "CDP 扫码"}
 
 		# 第一步：尝试从本地浏览器提取 Cookie
 		self._logger.info("尝试从本地浏览器提取 Cookie...")
@@ -74,43 +71,19 @@ class AuthManager:
 			self._logger.info("检测到 CDP 可用，尝试 CDP 登录...")
 			try:
 				token = login_via_cdp(cdp_url=cdp_url, timeout=timeout, platform=self._platform)
-				method = "CDP 扫码"
 				self._store.save(token)
 				self._token = token
-				return {**token, "_method": method}
+				return {**token, "_method": "CDP 扫码"}
 			except Exception as exc:
 				self._logger.info(f"CDP 登录失败（{exc}），降级到 patchright")
 		else:
 			self._logger.info("CDP 不可用，降级到 patchright 可见浏览器")
 
-		# 第三步：优先打开用户真正看得见、可扫码的 patchright 浏览器。
-		browser_error: Exception | None = None
-		try:
-			token = login_via_browser(timeout=timeout, platform=self._platform)
-			method = "扫码登录"
-			self._store.save(token)
-			self._token = token
-			return {**token, "_method": method}
-		except Exception as exc:
-			browser_error = exc
-			self._logger.info(f"patchright 登录失败（{exc}）")
-
-		# 第四步：保留原 zhipin 纯 HTTP QR 作为最后备用，避免移除已有兼容通道。
-		if self._platform == "zhipin":
-			try:
-				self._logger.info("尝试 QR 纯 httpx 备用登录...")
-				token = qr_login_httpx(timeout=timeout)
-				method = "QR httpx 登录"
-				self._store.save(token)
-				self._token = token
-				return {**token, "_method": method}
-			except Exception as exc:
-				self._logger.info(f"QR httpx 登录失败（{exc}）")
-				raise exc from browser_error
-
-		if browser_error is not None:
-			raise browser_error
-		raise RuntimeError("登录失败：没有可用的登录通道")
+		# 第三步：打开用户真正看得见、可扫码的 patchright 浏览器。
+		token = login_via_browser(timeout=timeout, platform=self._platform)
+		self._store.save(token)
+		self._token = token
+		return {**token, "_method": "扫码登录"}
 
 	def _has_primary_cookie(self, token: dict[str, Any]) -> bool:
 		cookies = token.get("cookies")
