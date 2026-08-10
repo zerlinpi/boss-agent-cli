@@ -1,6 +1,7 @@
 import pytest
 
 from boss_agent_cli.web import RecruiterWebController, WebConsoleError
+from boss_agent_cli.web import write_input_safety as write_safety
 from boss_agent_cli.web.server import RecruiterWebApplication
 
 
@@ -112,6 +113,35 @@ def test_malformed_async_jobs_are_rejected_before_task_submission(tmp_path, monk
 	try:
 		with pytest.raises(WebConsoleError):
 			application.post(path, payload)
+		assert submitted is False
+	finally:
+		application.tasks.close()
+
+
+def test_oversized_local_batch_is_rejected_before_task_submission(tmp_path, monkeypatch) -> None:
+	application = _application(tmp_path)
+	submitted = False
+
+	def submit(*args, **kwargs):
+		nonlocal submitted
+		submitted = True
+		return {}
+
+	monkeypatch.setattr(application.tasks, "submit", submit)
+	monkeypatch.setattr(
+		write_safety,
+		"estimated_document_bytes",
+		lambda entry: write_safety.MAX_LOCAL_BATCH_BYTES + 1,
+	)
+	try:
+		with pytest.raises(WebConsoleError) as caught:
+			application.post("/api/screen/local", {
+				"job_key": "java",
+				"documents": [{"name": "resume.pdf", "content_base64": "QQ=="}],
+				"force": False,
+			})
+		assert caught.value.code == "PAYLOAD_TOO_LARGE"
+		assert caught.value.status == 413
 		assert submitted is False
 	finally:
 		application.tasks.close()
