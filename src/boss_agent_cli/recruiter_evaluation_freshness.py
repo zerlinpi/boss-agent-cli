@@ -42,6 +42,17 @@ def evaluation_freshness(
 		result["reason"] = "评估记录缺少岗位或记录标识，请重新评估"
 		return result
 
+	# Version freshness is independent from whether the saved job configuration has changed. Resolve
+	# it first so a historical detail page can still link directly to an already-existing newer
+	# evaluation even when the old record was scored with a previous JD or rubric.
+	latest = store.latest_by_candidate(job_key=job_key)
+	current = latest.get(canonical_candidate_key(record))
+	if isinstance(current, dict):
+		result["latest_evaluation_id"] = str(current.get("id") or "")
+	result["version_current"] = bool(
+		isinstance(current, dict) and str(current.get("id") or "") == evaluation_id
+	)
+
 	job = get_saved_job_optional(store, job_key)
 	result["job_exists"] = job is not None
 	if job is None and require_saved_job:
@@ -57,15 +68,10 @@ def evaluation_freshness(
 			return result
 	result["job_current"] = True
 
-	latest = store.latest_by_candidate(job_key=job_key)
-	current = latest.get(canonical_candidate_key(record))
-	if isinstance(current, dict):
-		result["latest_evaluation_id"] = str(current.get("id") or "")
-	if not isinstance(current, dict) or str(current.get("id") or "") != evaluation_id:
+	if not result["version_current"]:
 		result["reason"] = "该候选人已有更新的评估版本，请使用最新结果"
 		return result
 
-	result["version_current"] = True
 	result["is_current"] = True
 	return result
 
