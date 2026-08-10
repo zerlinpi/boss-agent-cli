@@ -16,6 +16,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+from boss_agent_cli.auth.token_store import TokenStore
+
 PROVIDER_BASE_URLS: dict[str, str | None] = {
 	"openai": "https://api.openai.com/v1",
 	"deepseek": "https://api.deepseek.com/v1",
@@ -29,6 +31,7 @@ PROVIDER_BASE_URLS: dict[str, str | None] = {
 	"vllm": "http://localhost:8000/v1",
 	"custom": None,
 }
+_LOCAL_PROVIDER_PORTS = {"ollama": 11434, "vllm": 8000}
 
 _DEFAULT_CONFIG: dict[str, Any] = {
 	"ai_provider": None,
@@ -82,8 +85,8 @@ class AIConfigStore:
 		self._auth_dir = data_dir / "auth"
 		self._derived_key_cache: bytes | None = None
 
-	def _get_machine_id(self) -> str:
-		"""Get a stable machine identifier for key derivation."""
+	def _legacy_machine_id(self) -> str:
+		"""Return the pre-1.18 AI-key identity so existing keys can migrate once."""
 		if override := os.getenv("BOSS_AGENT_MACHINE_ID"):
 			return override
 		fingerprint = "|".join([
@@ -92,6 +95,10 @@ class AIConfigStore:
 			platform.machine() or "unknown-machine",
 		])
 		return hashlib.sha256(fingerprint.encode()).hexdigest()
+
+	def _get_machine_id(self) -> str:
+		"""Use the same stable OS identity as encrypted login sessions."""
+		return TokenStore(self._auth_dir)._get_machine_id()
 
 	def _get_salt(self) -> bytes:
 		"""Reuse auth salt file, or create one with owner-only permissions."""
@@ -127,21 +134,21 @@ class AIConfigStore:
 		_chmod_private(salt_path)
 		return salt
 
-	def _derive_key(self) -> bytes:
-		"""Derive and cache a Fernet key from machine ID and salt."""
-		if self._derived_key_cache is not None:
-			return self._derived_key_cache
-		salt = self._get_salt()
-		machine_id = self._get_machine_id()
+	def _derive_key_for_machine_id(self, machine_id: str) -> bytes:
 		kdf = PBKDF2HMAC(
 			algorithm=hashes.SHA256(),
 			length=32,
-			salt=salt,
+			salt=self._get_salt(),
 			iterations=480000,
 		)
-		key = urlsafe_b64encode(kdf.derive(machine_id.encode()))
-		self._derived_key_cache = key
-		return key
+		return urlsafe_b64encode(kdf.derive(machine_id.encode()))
+
+	def _derive_key(self) -> bytes:
+		"""Derive and cache a Fernet key from the shared machine ID and auth salt."""
+		if self._derived_key_cache is not None:
+			return self._derived_key_cache
+		self._derived_key_cache = self._derive_key_for_machine_id(self._get_machine_id())
+		return self._derived_key_cache
 
 	def save_api_key(self, key: str) -> None:
 		"""Encrypt and persist the API key atomically."""
@@ -150,15 +157,38 @@ class AIConfigStore:
 		_atomic_write(self._key_path, encrypted)
 
 	def get_api_key(self) -> str | None:
-		"""Load and decrypt the API key. Returns None if not set, unreadable, or invalid."""
+		"""Load the API key and transparently migrate keys encrypted by the legacy identity."""
 		if not self._key_path.exists():
 			return None
 		try:
-			fernet = Fernet(self._derive_key())
-			plaintext = fernet.decrypt(self._key_path.read_bytes())
-			return plaintext.decode("utf-8")
-		except (InvalidToken, ValueError, OSError, UnicodeDecodeError):
+			encrypted = self._key_path.read_bytes()
+		except OSError:
 			return None
+
+		try:
+			plaintext = Fernet(self._derive_key()).decrypt(encrypted)
+			return plaintext.decode("utf-8")
+		except (InvalidToken, ValueError, UnicodeDecodeError):
+			pass
+
+		current_machine_id = self._get_machine_id()
+		legacy_machine_id = self._legacy_machine_id()
+		if legacy_machine_id == current_machine_id:
+			return None
+		try:
+			legacy_key = self._derive_key_for_machine_id(legacy_machine_id)
+			plaintext = Fernet(legacy_key).decrypt(encrypted)
+			decoded = plaintext.decode("utf-8")
+		except (InvalidToken, ValueError, UnicodeDecodeError):
+			return None
+
+		# Successful legacy decryption is a one-time migration. A failed rewrite must not hide the
+		# usable key from the current process; it can be retried on the next read.
+		try:
+			self.save_api_key(decoded)
+		except OSError:
+			pass
+		return decoded
 
 	def save_config(self, **kwargs: Any) -> None:
 		"""Save known configuration fields, merging with existing values."""
@@ -186,12 +216,16 @@ class AIConfigStore:
 		return config
 
 	def get_base_url(self) -> str | None:
-		"""Get the API base URL: user config takes priority, then provider lookup."""
+		"""Get the API base URL: user config takes priority, then provider/environment defaults."""
 		config = self.load_config()
 		base_url = config.get("ai_base_url")
 		if base_url:
 			return str(base_url)
 		provider = config.get("ai_provider")
+		if provider in _LOCAL_PROVIDER_PORTS:
+			local_host = os.getenv("BOSS_LOCAL_AI_HOST", "").strip()
+			if local_host and "://" not in local_host and "/" not in local_host:
+				return f"http://{local_host}:{_LOCAL_PROVIDER_PORTS[str(provider)]}/v1"
 		if provider and provider in PROVIDER_BASE_URLS:
 			return PROVIDER_BASE_URLS[provider]
 		return None
