@@ -11,6 +11,7 @@ services:
       BOSS_WEB_PORT: "8765"
       BOSS_CDP_URL: "${BOSS_CDP_URL:-}"
       BOSS_LOCAL_AI_HOST: "${BOSS_LOCAL_AI_HOST:-host.docker.internal}"
+      BOSS_RECRUITER_CONTAINER: "1"
     volumes:
       - boss-recruiter-data:/data/.boss-agent
     restart: unless-stopped
