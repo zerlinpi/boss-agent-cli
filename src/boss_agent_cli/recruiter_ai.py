@@ -17,6 +17,7 @@ from boss_agent_cli.recruiter_data_integrity import install_store_integrity
 from boss_agent_cli.recruiter_identity_safety import install_identity_alias_sanitizer
 from boss_agent_cli.recruiter_job_cache import install_job_profile_cache
 from boss_agent_cli.recruiter_local_data_safety import install_local_data_safety, sanitize_local_resume
+from boss_agent_cli.recruiter_operational_privacy import install_operational_privacy
 from boss_agent_cli.recruiter_privacy_hardening import (
 	install_evaluation_output_hardening,
 	install_model_and_store_hardening,
@@ -30,6 +31,7 @@ install_candidate_state_retention()
 install_candidate_version_ordering(RecruiterAIStore)
 install_model_and_store_hardening(_model_module, RecruiterAIStore)
 install_local_data_safety(_model_module, RecruiterAIStore)
+install_operational_privacy(_model_module, RecruiterAIStore)
 install_store_integrity(RecruiterAIStore, _model_module.RecruiterAIError)
 # recruiter_ai_store imports this helper by value before the runtime hardening layer is installed.
 # Keep direct Store API calls on the same rubric contract as CLI/Web entry points.
@@ -73,6 +75,7 @@ from boss_agent_cli.recruiter_ai_models import (  # noqa: E402
 	parse_ai_json,
 	read_json_input,
 	read_text_input,
+	recommended_reply_intent,
 	resume_fingerprint,
 	rubric_fingerprint,
 )
