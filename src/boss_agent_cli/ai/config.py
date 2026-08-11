@@ -6,6 +6,7 @@ Reuses the auth salt file for key derivation.
 
 import hashlib
 import json
+import math
 import os
 import platform
 from base64 import urlsafe_b64encode
@@ -34,6 +35,9 @@ PROVIDER_BASE_URLS: dict[str, str | None] = {
 }
 _LOCAL_PROVIDER_PORTS = {"ollama": 11434, "vllm": 8000}
 _LOOPBACK_AI_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_MAX_API_KEY_CHARS = 8192
+_MAX_MODEL_CHARS = 256
+_MAX_BASE_URL_CHARS = 2048
 
 _DEFAULT_CONFIG: dict[str, Any] = {
 	"ai_provider": None,
@@ -46,7 +50,6 @@ _CONFIG_KEYS = frozenset(_DEFAULT_CONFIG)
 
 
 def _chmod_private(path: Path) -> None:
-	"""Best-effort owner-only permissions on POSIX; harmless on platforms without full chmod semantics."""
 	try:
 		path.chmod(0o600)
 	except OSError:
@@ -54,7 +57,6 @@ def _chmod_private(path: Path) -> None:
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
-	"""Replace a sensitive config file atomically and apply owner-only permissions."""
 	temporary = path.with_name(f".{path.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
 	fd: int | None = None
 	try:
@@ -75,8 +77,62 @@ def _atomic_write(path: Path, data: bytes) -> None:
 			pass
 
 
+def _validate_base_url(value: Any) -> str | None:
+	if value is None:
+		return None
+	if not isinstance(value, str):
+		raise ValueError("ai_base_url 必须是字符串或 null")
+	url = value.strip().rstrip("/")
+	if not url:
+		return None
+	if len(url) > _MAX_BASE_URL_CHARS:
+		raise ValueError(f"ai_base_url 过长，最多 {_MAX_BASE_URL_CHARS} 字符")
+	try:
+		parsed = urlparse(url)
+	except ValueError as exc:
+		raise ValueError("ai_base_url 必须是完整的 HTTP(S) 地址") from exc
+	if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+		raise ValueError("ai_base_url 必须是完整的 HTTP(S) 地址")
+	if parsed.username or parsed.password:
+		raise ValueError("ai_base_url 不应包含用户名或密码")
+	try:
+		_ = parsed.port
+	except ValueError as exc:
+		raise ValueError("ai_base_url 端口无效") from exc
+	return url
+
+
+def _validate_config(config: dict[str, Any]) -> dict[str, Any]:
+	validated = dict(config)
+	provider = validated.get("ai_provider")
+	if provider is not None:
+		if not isinstance(provider, str) or provider not in PROVIDER_BASE_URLS:
+			raise ValueError(f"不支持的 AI provider: {provider!r}")
+	model = validated.get("ai_model")
+	if model is not None:
+		if not isinstance(model, str) or not model.strip():
+			raise ValueError("ai_model 必须是非空字符串")
+		model = model.strip()
+		if len(model) > _MAX_MODEL_CHARS:
+			raise ValueError(f"ai_model 过长，最多 {_MAX_MODEL_CHARS} 字符")
+		validated["ai_model"] = model
+	validated["ai_base_url"] = _validate_base_url(validated.get("ai_base_url"))
+
+	temperature = validated.get("ai_temperature", 0.7)
+	if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+		raise ValueError("ai_temperature 必须是 0-2 的有限数字")
+	temperature = float(temperature)
+	if not math.isfinite(temperature) or not 0 <= temperature <= 2:
+		raise ValueError("ai_temperature 必须是 0-2 的有限数字")
+	validated["ai_temperature"] = temperature
+
+	max_tokens = validated.get("ai_max_tokens", 4096)
+	if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or not 1 <= max_tokens <= 1_000_000:
+		raise ValueError("ai_max_tokens 必须是 1-1000000 的整数")
+	return validated
+
+
 def _docker_local_ai_url(provider: str, configured_url: str | None) -> str | None:
-	"""Rewrite only loopback local-model URLs when Docker provides a host gateway name."""
 	local_host = os.getenv("BOSS_LOCAL_AI_HOST", "").strip()
 	if not local_host or "://" in local_host or "/" in local_host or ":" in local_host:
 		return None
@@ -112,7 +168,6 @@ class AIConfigStore:
 		self._derived_key_cache: bytes | None = None
 
 	def _legacy_machine_id(self) -> str:
-		"""Return the pre-1.18 physical fingerprint so old AI keys can migrate once."""
 		fingerprint = "|".join([
 			platform.node() or "unknown-node",
 			platform.system() or "unknown-system",
@@ -121,11 +176,9 @@ class AIConfigStore:
 		return hashlib.sha256(fingerprint.encode()).hexdigest()
 
 	def _get_machine_id(self) -> str:
-		"""Use the same stable OS identity as encrypted login sessions."""
 		return TokenStore(self._auth_dir)._get_machine_id()
 
 	def _get_salt(self) -> bytes:
-		"""Reuse auth salt file, or create one with owner-only permissions."""
 		self._auth_dir.mkdir(parents=True, exist_ok=True)
 		salt_path = self._auth_dir / "salt"
 		if salt_path.exists():
@@ -136,7 +189,6 @@ class AIConfigStore:
 			if len(salt) >= 16:
 				_chmod_private(salt_path)
 				return salt
-			# A corrupt/empty salt cannot decrypt the old key anyway. Reset both consistently.
 			try:
 				self._key_path.unlink()
 			except FileNotFoundError:
@@ -168,27 +220,27 @@ class AIConfigStore:
 		return urlsafe_b64encode(kdf.derive(machine_id.encode()))
 
 	def _derive_key(self) -> bytes:
-		"""Derive and cache a Fernet key from the shared machine ID and auth salt."""
 		if self._derived_key_cache is not None:
 			return self._derived_key_cache
 		self._derived_key_cache = self._derive_key_for_machine_id(self._get_machine_id())
 		return self._derived_key_cache
 
 	def save_api_key(self, key: str) -> None:
-		"""Encrypt and persist the API key atomically."""
+		if not isinstance(key, str) or not key.strip():
+			raise ValueError("API Key 不能为空")
+		if len(key) > _MAX_API_KEY_CHARS:
+			raise ValueError(f"API Key 过长，最多 {_MAX_API_KEY_CHARS} 字符")
 		fernet = Fernet(self._derive_key())
 		encrypted = fernet.encrypt(key.encode("utf-8"))
 		_atomic_write(self._key_path, encrypted)
 
 	def get_api_key(self) -> str | None:
-		"""Load the API key and transparently migrate keys encrypted by the legacy identity."""
 		if not self._key_path.exists():
 			return None
 		try:
 			encrypted = self._key_path.read_bytes()
 		except OSError:
 			return None
-
 		try:
 			plaintext = Fernet(self._derive_key()).decrypt(encrypted)
 			return plaintext.decode("utf-8")
@@ -205,9 +257,6 @@ class AIConfigStore:
 			decoded = plaintext.decode("utf-8")
 		except (InvalidToken, ValueError, UnicodeDecodeError):
 			return None
-
-		# Successful legacy decryption is a one-time migration. A failed rewrite must not hide the
-		# usable key from the current process; it can be retried on the next read.
 		try:
 			self.save_api_key(decoded)
 		except OSError:
@@ -215,19 +264,18 @@ class AIConfigStore:
 		return decoded
 
 	def save_config(self, **kwargs: Any) -> None:
-		"""Save known configuration fields, merging with existing values."""
 		unknown = set(kwargs) - _CONFIG_KEYS
 		if unknown:
 			raise ValueError(f"unknown AI config fields: {', '.join(sorted(unknown))}")
 		current = self.load_config()
 		current.update(kwargs)
+		validated = _validate_config(current)
 		_atomic_write(
 			self._config_path,
-			json.dumps(current, ensure_ascii=False, indent=2).encode("utf-8"),
+			json.dumps(validated, ensure_ascii=False, indent=2).encode("utf-8"),
 		)
 
 	def load_config(self) -> dict[str, Any]:
-		"""Load configuration with defaults for missing or malformed content."""
 		config = dict(_DEFAULT_CONFIG)
 		if self._config_path.exists():
 			try:
@@ -240,7 +288,6 @@ class AIConfigStore:
 		return config
 
 	def get_base_url(self) -> str | None:
-		"""Resolve explicit config, with Docker loopback rewriting for built-in local providers."""
 		config = self.load_config()
 		provider = config.get("ai_provider")
 		raw_base_url = config.get("ai_base_url")
@@ -256,7 +303,6 @@ class AIConfigStore:
 		return None
 
 	def is_configured(self) -> bool:
-		"""Check if all required settings are present (provider + model + api_key)."""
 		config = self.load_config()
 		provider = config.get("ai_provider")
 		model = config.get("ai_model")
