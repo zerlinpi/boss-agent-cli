@@ -39,3 +39,25 @@ def test_scalar_lists_are_rejected_instead_of_iterating_characters() -> None:
 		automation_config_from_dict({"tabs": "未读"})
 	with pytest.raises(ValueError, match="allowed_actions"):
 		automation_config_from_dict({"allowed_actions": "send_follow_up"})
+
+
+def test_automation_platforms_must_be_supported_and_nonempty() -> None:
+	with pytest.raises(ValueError, match="platforms 不能为空"):
+		automation_config_from_dict({"platforms": []})
+	with pytest.raises(ValueError, match="不支持"):
+		automation_config_from_dict({"platforms": ["unknown"]})
+	config = automation_config_from_dict({"platforms": ["zhipin", "zhipin", "zhilian"]})
+	assert config.platforms == ("zhipin", "zhilian")
+
+
+def test_default_risk_markers_cannot_be_removed() -> None:
+	config = automation_config_from_dict({"stop_on_page_text": []})
+	assert "验证码" in config.stop_on_page_text
+	assert "安全验证" in config.stop_on_page_text
+	assert "操作频繁" in config.stop_on_page_text
+
+
+def test_custom_risk_markers_extend_defaults_without_duplicates() -> None:
+	config = automation_config_from_dict({"stop_on_page_text": ["验证码", "自定义风险提示"]})
+	assert config.stop_on_page_text.count("验证码") == 1
+	assert "自定义风险提示" in config.stop_on_page_text
