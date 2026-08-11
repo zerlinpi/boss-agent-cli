@@ -156,12 +156,17 @@ def run_profiled_autopilot(
 	selected_job_keys: set[str] | None,
 ) -> dict[str, Any]:
 	"""Prepare current job profiles, then execute the normal incremental candidate pipeline."""
+	# Explicit --job-key is a scoped validation/operation mode. Do not discover/profile unrelated
+	# BOSS jobs as a side effect; selected keys must already exist locally and remain the only scope.
+	profile_auto_configure = auto_configure and selected_job_keys is None
 	profile_sync = prepare_autopilot_job_profiles(
 		platform=platform,
 		store=store,
 		service=service,
-		auto_configure=auto_configure,
+		auto_configure=profile_auto_configure,
 	)
+	if auto_configure and selected_job_keys is not None:
+		profile_sync["selection_scope"] = "explicit_job_keys_no_auto_discovery"
 	result = _CORE_RUN_AUTOPILOT(
 		data_dir=data_dir,
 		platform=platform,
@@ -174,7 +179,7 @@ def run_profiled_autopilot(
 		draft_top=draft_top,
 		include_chat=include_chat,
 		force=force,
-		# Discovery already ran above when enabled; a second pass only needs to map current jobs.
+		# Discovery already ran above for all-job mode. Explicit job selection must not expand scope.
 		auto_configure=False,
 		selected_job_keys=selected_job_keys,
 	)
