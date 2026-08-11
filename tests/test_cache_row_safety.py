@@ -37,3 +37,15 @@ def test_corrupt_crawl_job_payload_fails_with_row_identity(tmp_path) -> None:
 			store.get_crawl_job("run-1", "job-1")
 		with pytest.raises(CacheRowCorruptionError, match="job_key=job-1"):
 			store.list_crawl_jobs("run-1")
+
+
+def test_corrupt_saved_search_params_fails_closed(tmp_path) -> None:
+	with CacheStore(tmp_path / "cache.db") as store:
+		store.save_saved_search("python", {"query": "python"})
+		store._conn.execute("UPDATE saved_searches SET params = ? WHERE name = ?", ("[]", "python"))
+		store._conn.commit()
+
+		with pytest.raises(CacheRowCorruptionError, match="saved_searches.params"):
+			store.get_saved_search("python")
+		with pytest.raises(CacheRowCorruptionError, match="name=python"):
+			store.list_saved_searches()
