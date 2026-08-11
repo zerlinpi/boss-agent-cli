@@ -95,7 +95,39 @@ def install_cache_row_safety(store_cls: type[Any]) -> None:
 			})
 		return items
 
+	def get_saved_search(self: Any, name: str) -> dict[str, Any] | None:
+		row = self._conn.execute(
+			"SELECT name, params, created_at, updated_at FROM saved_searches WHERE name = ?",
+			(name,),
+		).fetchone()
+		if row is None:
+			return None
+		identity = f"name={name}"
+		return {
+			"name": row[0],
+			"params": _decode_object(row[1], table="saved_searches", field="params", identity=identity),
+			"created_at": row[2],
+			"updated_at": row[3],
+		}
+
+	def list_saved_searches(self: Any) -> list[dict[str, Any]]:
+		rows = self._conn.execute(
+			"SELECT name, params, created_at, updated_at FROM saved_searches ORDER BY updated_at DESC"
+		).fetchall()
+		items: list[dict[str, Any]] = []
+		for row in rows:
+			name = str(row[0])
+			items.append({
+				"name": name,
+				"params": _decode_object(row[1], table="saved_searches", field="params", identity=f"name={name}"),
+				"created_at": row[2],
+				"updated_at": row[3],
+			})
+		return items
+
 	setattr(store_cls, "get_crawl_run", get_crawl_run)
 	setattr(store_cls, "get_crawl_job", get_crawl_job)
 	setattr(store_cls, "list_crawl_jobs", list_crawl_jobs)
+	setattr(store_cls, "get_saved_search", get_saved_search)
+	setattr(store_cls, "list_saved_searches", list_saved_searches)
 	setattr(store_cls, "_boss_cache_row_safety_installed", True)
