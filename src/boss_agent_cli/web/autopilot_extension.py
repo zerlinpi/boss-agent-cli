@@ -7,8 +7,9 @@ from typing import Any, Callable
 
 from boss_agent_cli.commands._recruiter_platform import get_recruiter_platform_instance
 from boss_agent_cli.commands.recruiter import ai_autopilot as _autopilot_module
-from boss_agent_cli.commands.recruiter.ai_autopilot import RecruiterAutopilotState, run_autopilot
+from boss_agent_cli.commands.recruiter.ai_autopilot import RecruiterAutopilotState
 from boss_agent_cli.commands.recruiter.ai_autopilot_freshness import install_autopilot_freshness
+from boss_agent_cli.commands.recruiter.ai_autopilot_job_profile import run_profiled_autopilot
 from boss_agent_cli.commands.recruiter.ai_autopilot_lease import (
 	RecruiterAutopilotBusy,
 	recruiter_autopilot_lease,
@@ -74,13 +75,13 @@ def install_autopilot_controller() -> None:
 			raise controller_module.WebConsoleError("INVALID_PARAM", "job_keys 必须是数组")
 
 		if progress:
-			progress(5, "正在读取 BOSS 当前职位与增量同步状态")
+			progress(5, "正在读取 BOSS 当前职位并生成/刷新岗位画像")
 		service = self._service()
 		auth = self._auth()
 		try:
 			with recruiter_autopilot_lease(self.data_dir):
 				with get_recruiter_platform_instance(self._context(), auth) as platform:
-					result = run_autopilot(
+					result = run_profiled_autopilot(
 						data_dir=self.data_dir,
 						platform=platform,
 						service=service,
@@ -98,7 +99,7 @@ def install_autopilot_controller() -> None:
 		except RecruiterAutopilotBusy as exc:
 			raise controller_module.WebConsoleError(exc.code, str(exc), status=409) from exc
 		if progress:
-			progress(100, "全职位增量同步与 AI 筛选完成")
+			progress(100, "全职位增量同步、AI 评分与草稿生成完成")
 		totals = result.get("totals") if isinstance(result.get("totals"), dict) else {}
 		self.audit.append(
 			"autopilot.completed",
