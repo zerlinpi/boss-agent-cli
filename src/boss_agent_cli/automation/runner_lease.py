@@ -60,10 +60,14 @@ def runner_lease(root: Path) -> Iterator[None]:
 	fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
 	unlock: Callable[[], None] | None = None
 	try:
+		# Keep byte 0 reserved for the Windows byte-range lock. Metadata always starts
+		# at byte 1 so truncating/replacing metadata never invalidates the locked byte.
+		if os.fstat(fd).st_size < 1:
+			os.ftruncate(fd, 1)
 		unlock = _lock_windows(fd) if os.name == "nt" else _lock_posix(fd)
 		metadata = json.dumps({"pid": os.getpid(), "started_at": _now()}, ensure_ascii=False).encode("utf-8")
-		os.lseek(fd, 0, os.SEEK_SET)
-		os.ftruncate(fd, 0)
+		os.lseek(fd, 1, os.SEEK_SET)
+		os.ftruncate(fd, 1)
 		os.write(fd, metadata)
 		os.fsync(fd)
 		try:
