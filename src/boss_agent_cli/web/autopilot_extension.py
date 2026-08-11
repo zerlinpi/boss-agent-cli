@@ -7,6 +7,10 @@ from typing import Any, Callable
 
 from boss_agent_cli.commands._recruiter_platform import get_recruiter_platform_instance
 from boss_agent_cli.commands.recruiter.ai_autopilot import RecruiterAutopilotState, run_autopilot
+from boss_agent_cli.commands.recruiter.ai_autopilot_lease import (
+	RecruiterAutopilotBusy,
+	recruiter_autopilot_lease,
+)
 from boss_agent_cli.compliance import require_capability_mode
 from boss_agent_cli.web import controller as controller_module
 
@@ -69,22 +73,26 @@ def install_autopilot_controller() -> None:
 			progress(5, "正在读取 BOSS 当前职位与增量同步状态")
 		service = self._service()
 		auth = self._auth()
-		with get_recruiter_platform_instance(self._context(), auth) as platform:
-			result = run_autopilot(
-				data_dir=self.data_dir,
-				platform=platform,
-				service=service,
-				store=self.store,
-				max_pages=_bounded_int(payload, "max_pages", 30, 1, 100),
-				max_candidates_per_job=_bounded_int(payload, "max_candidates_per_job", 2000, 1, 10000),
-				refresh_seen_hours=_bounded_int(payload, "refresh_seen_hours", 24, 0, 24 * 30),
-				top=_bounded_int(payload, "top", 50, 1, 500),
-				draft_top=_bounded_int(payload, "draft_top", 10, 0, 100),
-				include_chat=include_chat,
-				force=bool(payload.get("force", False)),
-				auto_configure=bool(payload.get("auto_configure", True)),
-				selected_job_keys=selected_job_keys,
-			)
+		try:
+			with recruiter_autopilot_lease(self.data_dir):
+				with get_recruiter_platform_instance(self._context(), auth) as platform:
+					result = run_autopilot(
+						data_dir=self.data_dir,
+						platform=platform,
+						service=service,
+						store=self.store,
+						max_pages=_bounded_int(payload, "max_pages", 30, 1, 100),
+						max_candidates_per_job=_bounded_int(payload, "max_candidates_per_job", 2000, 1, 10000),
+						refresh_seen_hours=_bounded_int(payload, "refresh_seen_hours", 24, 0, 24 * 30),
+						top=_bounded_int(payload, "top", 50, 1, 500),
+						draft_top=_bounded_int(payload, "draft_top", 10, 0, 100),
+						include_chat=include_chat,
+						force=bool(payload.get("force", False)),
+						auto_configure=bool(payload.get("auto_configure", True)),
+						selected_job_keys=selected_job_keys,
+					)
+		except RecruiterAutopilotBusy as exc:
+			raise controller_module.WebConsoleError(exc.code, str(exc), status=409) from exc
 		if progress:
 			progress(100, "全职位增量同步与 AI 筛选完成")
 		totals = result.get("totals") if isinstance(result.get("totals"), dict) else {}
