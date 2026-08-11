@@ -4,11 +4,11 @@ on:
   push:
     branches: [master]
     paths:
-      - "src/boss_agent_cli/ai/config.py"
+      - "src/boss_agent_cli/ai/**"
       - "src/boss_agent_cli/web/**"
       - "src/boss_agent_cli/commands/ai_config_safety.py"
       - "src/boss_agent_cli/commands/register.py"
-      - "tests/test_ai_config_validation.py"
+      - "tests/test_ai_config_*.py"
       - "tests/test_recruiter_ai_config_safety.py"
       - "tests/test_recruiter_analytics_safety.py"
       - "tests/test_recruiter_request_boundary.py"
@@ -16,11 +16,11 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - "src/boss_agent_cli/ai/config.py"
+      - "src/boss_agent_cli/ai/**"
       - "src/boss_agent_cli/web/**"
       - "src/boss_agent_cli/commands/ai_config_safety.py"
       - "src/boss_agent_cli/commands/register.py"
-      - "tests/test_ai_config_validation.py"
+      - "tests/test_ai_config_*.py"
       - "tests/test_recruiter_ai_config_safety.py"
       - "tests/test_recruiter_analytics_safety.py"
       - "tests/test_recruiter_request_boundary.py"
@@ -53,6 +53,7 @@ jobs:
           tests/test_ai_config.py
           tests/test_ai_config_migration.py
           tests/test_ai_config_validation.py
+          tests/test_ai_config_recovery.py
           tests/test_recruiter_ai_config_safety.py
           tests/test_recruiter_analytics_safety.py
           tests/test_recruiter_host_safety.py
