@@ -3,7 +3,7 @@
 		const data = state.bootstrap || {};
 		return {
 			aiReady: Boolean(data.ai?.configured),
-			authReady: Boolean(data.auth?.logged_in),
+			authReady: Boolean(data.auth?.logged_in) && data.auth?.state === "complete",
 			modeReady: data.operating_mode === "research",
 			hasCandidates: Boolean(data.onboarding?.has_candidates),
 		};
@@ -79,7 +79,7 @@
 		}
 		const items = [
 			["AI", snapshot.aiReady],
-			["BOSS 登录", snapshot.authReady],
+			["BOSS 凭证完整", snapshot.authReady],
 			["Research", snapshot.modeReady],
 		];
 		const ready = snapshot.aiReady && snapshot.authReady && snapshot.modeReady;
