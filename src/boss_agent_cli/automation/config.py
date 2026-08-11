@@ -83,8 +83,7 @@ def _string_tuple(value: Any, *, label: str, default: tuple[str, ...]) -> tuple[
 		return default
 	if not isinstance(value, (list, tuple)):
 		raise ValueError(f"{label} 必须是数组")
-	items = tuple(str(item).strip() for item in value if str(item).strip())
-	return items
+	return tuple(str(item).strip() for item in value if str(item).strip())
 
 
 def _allowed_actions(data: dict[str, Any]) -> tuple[PlatformAction, ...]:
@@ -94,11 +93,11 @@ def _allowed_actions(data: dict[str, Any]) -> tuple[PlatformAction, ...]:
 	if not isinstance(raw, (list, tuple)):
 		raise ValueError("allowed_actions 必须是数组")
 	allowed_action_values = {action.value for action in PlatformAction}
-	return tuple(
-		PlatformAction(str(item))
-		for item in raw
-		if str(item) in allowed_action_values
-	)
+	values = [str(item).strip() for item in raw if str(item).strip()]
+	unknown = sorted({value for value in values if value not in allowed_action_values})
+	if unknown:
+		raise ValueError(f"allowed_actions 包含未知动作: {', '.join(unknown)}")
+	return tuple(PlatformAction(value) for value in values)
 
 
 def automation_config_from_dict(raw: dict[str, Any] | None) -> AutomationConfig:
