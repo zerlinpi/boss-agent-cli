@@ -56,7 +56,7 @@ class RecruiterWebApplication:
 
 	def get(self, path: str, query: dict[str, list[str]]) -> Any:
 		if path == "/api/bootstrap":
-			return {**self.controller.bootstrap(), "tasks": self.tasks.recent(limit=20)}
+			return {**self.controller.bootstrap(), "tasks": self.tasks.list(limit=20)}
 		if path == "/api/jobs":
 			return {"items": self.controller.list_jobs()}
 		if path.startswith("/api/jobs/"):
@@ -86,12 +86,13 @@ class RecruiterWebApplication:
 				action=_query_optional(query, "action"),
 			)}
 		if path == "/api/tasks":
-			return {"items": self.tasks.recent(limit=_query_int(query, "limit", 50))}
+			return {"items": self.tasks.list(limit=_query_int(query, "limit", 50))}
 		if path.startswith("/api/tasks/"):
-			task = self.tasks.get(unquote(path.removeprefix("/api/tasks/")))
-			if task is None:
-				raise WebConsoleError("TASK_NOT_FOUND", "任务不存在", status=404)
-			return task
+			task_id = unquote(path.removeprefix("/api/tasks/"))
+			try:
+				return self.tasks.get(task_id)
+			except KeyError as exc:
+				raise WebConsoleError("TASK_NOT_FOUND", "任务不存在", status=404) from exc
 		if path == "/api/auth/status":
 			return self.controller.auth_status()
 		raise WebConsoleError("NOT_FOUND", "接口不存在", status=404)
