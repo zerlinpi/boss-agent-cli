@@ -1,9 +1,9 @@
 # Recruiter Autopilot
 
 Recruiter Autopilot is the unattended **collection and analysis** layer of BOSS Recruit AI.
-It synchronizes current BOSS recruiter jobs and applications, parses candidate resumes,
-runs the existing evidence-based AI evaluation, updates local rankings, and creates reply
-drafts for human review.
+It synchronizes current BOSS recruiter jobs and applications, refreshes auto-managed JDs,
+generates safe AI job profiles, parses candidate resumes, runs the existing evidence-based AI
+evaluation, updates local rankings, and creates reply drafts for human review.
 
 It intentionally does **not** automatically reject, hire, invite, or send messages to candidates.
 Final employment decisions and external communications remain human actions.
@@ -14,6 +14,8 @@ Final employment decisions and external communications remain human actions.
 BOSS current jobs
   -> match existing local job configs
   -> optionally fetch JD and auto-create missing local job configs
+  -> generate a protected-attribute-safe AI job profile / scoring rubric
+  -> refresh that profile when the BOSS JD changes
   -> page through applications for every selected job
   -> de-duplicate candidate references
   -> freshness check against the current JD/rubric version
@@ -146,16 +148,24 @@ Always check every run, while still retaining resume fingerprint de-duplication:
 .\.venv\Scripts\boss.exe hr ai autopilot --refresh-seen-hours 0
 ```
 
-## Auto-configuring current BOSS jobs
+## Auto-configuring and profiling current BOSS jobs
 
 Default behavior is `--auto-configure`.
 For a current BOSS job that has no local `boss_job_id` mapping, Autopilot attempts to:
 
 1. read the BOSS job detail;
-2. extract an explicit JD field;
+2. extract an explicit JD field only;
 3. create a local job key derived from the BOSS job ID;
 4. store the BOSS job ID/title in metadata;
-5. use the standard protected-attribute-safe default rubric.
+5. ask the configured AI model for a job-specific rubric and interview profile;
+6. pass that AI output through the existing local `normalize_rubric` hard validation before saving it.
+
+On later runs, auto-managed jobs refresh their BOSS JD. If the JD changed, the tailored rubric is generated again.
+If AI profiling fails, the old safe job configuration is retained and the failure is reported; a changed JD is not
+silently paired with an old rubric.
+
+If the model generates protected criteria such as age, gender, marital/family status, ethnicity/race, religion,
+disability/health or political affiliation, local validation rejects that generated profile rather than saving it.
 
 If job-detail parsing cannot identify a JD safely, that job is reported under
 `unconfigured_platform_jobs` instead of guessing from arbitrary page text.
@@ -186,12 +196,12 @@ In **智能筛选**, the `Recruiter Autopilot · 全职位增量同步` panel ex
 - candidate cap per job;
 - freshness interval;
 - reply draft count;
-- auto-configure jobs;
+- auto-configure + AI-profile jobs;
 - optional chat context;
 - force refresh.
 
 The operation runs through the existing persistent background task registry. It is visible in
-**任务与审计**, can use the existing cancellation controls, and cannot overlap another Web screening task.
+**任务与审计**, uses BOSS/API/AI calls as cancellation checkpoints, and cannot overlap another Web screening task.
 A cross-process OS lock also prevents the Web UI, manual CLI, and Windows scheduler from running the same
 Autopilot simultaneously.
 
