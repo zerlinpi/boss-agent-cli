@@ -2,6 +2,7 @@
 
 from boss_agent_cli.web import controller as _controller
 from boss_agent_cli.web import tasks as _tasks
+from boss_agent_cli.web.analytics_safety import install_analytics_safety
 from boss_agent_cli.web.autopilot_extension import (
 	install_autopilot_controller,
 	install_autopilot_server,
@@ -49,6 +50,7 @@ install_controller_write_input_safety()
 install_candidate_freshness()
 install_job_analysis_safety()
 install_screening_cache()
+install_analytics_safety(_controller)
 install_current_job_results()
 install_upload_policy()
 install_boss_draft_scope()
