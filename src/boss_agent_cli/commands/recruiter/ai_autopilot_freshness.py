@@ -40,8 +40,14 @@ def install_autopilot_freshness(autopilot_module: Any) -> None:
 		if not evaluation_id or not job_key:
 			return False
 		root = Path(self.path).parent
-		evaluation_path = root / "evaluations" / f"{evaluation_id}.json"
-		job_path = root / "jobs" / f"{job_key}.json"
+		evaluations_dir = (root / "evaluations").resolve()
+		jobs_dir = (root / "jobs").resolve()
+		evaluation_path = (evaluations_dir / f"{evaluation_id}.json").resolve()
+		job_path = (jobs_dir / f"{job_key}.json").resolve()
+		# The ledger is rebuildable/untrusted local state. Never allow a tampered key to make
+		# freshness validation read outside the recruiter-ai data directories.
+		if evaluation_path.parent != evaluations_dir or job_path.parent != jobs_dir:
+			return False
 		try:
 			evaluation = json.loads(evaluation_path.read_text(encoding="utf-8"))
 			job = json.loads(job_path.read_text(encoding="utf-8"))
