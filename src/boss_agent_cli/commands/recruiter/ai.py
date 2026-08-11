@@ -2,6 +2,7 @@
 
 import click
 
+from boss_agent_cli.commands.recruiter.ai_autopilot import autopilot_cmd
 from boss_agent_cli.commands.recruiter.ai_local import (
 	batch_cmd,
 	configure_cmd,
@@ -37,6 +38,7 @@ for command in (
 	evaluate_geek_cmd,
 	screen_cmd,
 	screen_applications_cmd,
+	autopilot_cmd,
 	batch_cmd,
 	rank_cmd,
 	report_cmd,
