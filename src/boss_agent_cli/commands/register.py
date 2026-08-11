@@ -40,6 +40,7 @@ from boss_agent_cli.commands import (
 	status,
 	watch,
 )
+from boss_agent_cli.commands.agent_safety import install_agent_command_safety
 from boss_agent_cli.commands.ai_config_safety import install_ai_config_command_safety
 from boss_agent_cli.commands.recruiter import ai as recruiter_ai
 from boss_agent_cli.commands.recruiter import applications as recruiter_applications
@@ -52,10 +53,23 @@ from boss_agent_cli.commands.recruiter import resume as recruiter_resume
 from boss_agent_cli.display import handle_error_output
 from boss_agent_cli.platforms import list_recruiter_platforms
 
+_AGENT_SAFETY_COMMANDS = (
+	agent.run_cmd,
+	agent.train_cmd,
+	agent.review_list_cmd,
+	agent.review_approve_cmd,
+	agent.review_reject_cmd,
+	agent.pending_list_cmd,
+	agent.agent_stats_cmd,
+	agent.stop_cmd,
+)
+
 
 def register_candidate_commands(cli: click.Group) -> None:
 	"""Register candidate and shared top-level commands."""
 	install_ai_config_command_safety(ai_cmd.ai_config_cmd)
+	for command in _AGENT_SAFETY_COMMANDS:
+		install_agent_command_safety(command)
 	cli.add_command(schema.schema_cmd, "schema")
 	cli.add_command(login.login_cmd, "login")
 	cli.add_command(logout.logout_cmd, "logout")
