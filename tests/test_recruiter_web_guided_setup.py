@@ -36,3 +36,12 @@ def test_guided_setup_keeps_first_run_small_and_research_explicit() -> None:
 	assert "请选择 Research，并确认已获得候选人数据处理授权" in text
 	assert 'setMode("research")' not in text
 	assert "创建岗位" not in text
+
+
+def test_guided_setup_prioritizes_autopilot_and_collapses_secondary_screening() -> None:
+	text = files("boss_agent_cli.web.assets").joinpath("guided_setup.js").read_text(encoding="utf-8")
+
+	assert 'grid.prepend(autopilot)' in text
+	assert 'details.id = "advanced-screening-options"' in text
+	assert "主流程优先使用全职位 Autopilot" in text
+	assert "本地文件 / 单岗位" in text
