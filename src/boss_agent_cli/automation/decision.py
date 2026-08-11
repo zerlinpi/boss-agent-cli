@@ -49,9 +49,6 @@ def decide_action(
 	matching = score_candidate(candidate)
 	status = _conversation_status(conversation, prior, config)
 	if status.has_exchange and status.interview_time:
-		# This is only a local administrative lead record. An explicit time supplied by
-		# the candidate is direct evidence for creating that record; it is not an
-		# employment recommendation or invitation decision.
 		return Decision(
 			action=PlatformAction.CREATE_INTERVIEW_LEAD,
 			confidence=0.95,
@@ -96,11 +93,7 @@ def decide_action(
 
 
 def snapshot_from_conversation(conversation: Conversation) -> CandidateSnapshot:
-	"""Build only the communication signals required by legacy automation.
-
-	Job-fit fields such as city, education, and experience are deliberately not
-	extracted here; JD-specific evaluation is handled by Recruiter Autopilot.
-	"""
+	"""Build only communication signals; JD-specific fit is handled elsewhere."""
 	text = "\n".join((
 		conversation.title,
 		conversation.item_title,
@@ -173,14 +166,15 @@ def _conversation_status(
 	prior: dict[str, str],
 	config: AutomationConfig,
 ) -> ConversationStatus:
-	# Grouped incoming/outgoing collections prove that a message exists but not when it
-	# occurred. Only ordered_messages can prove that a candidate replied after a
-	# questionnaire or follow-up.
+	# Message existence and chronology are intentionally separate. Grouped collections
+	# can prove a message exists; only ordered_messages can prove reply order. Combining
+	# all sources for existence also handles a partial ordered window that omits older
+	# outbound messages still present in outgoing_messages.
 	ordered_texts = [message[1] for message in conversation.ordered_messages]
 	fallback_texts = [*conversation.outgoing_messages, *conversation.incoming_messages]
-	search_texts = ordered_texts or fallback_texts
-	questionnaire_index = _last_index(search_texts, config.questionnaire_message)
-	follow_up_index = _last_index(search_texts, config.follow_up_message)
+	existence_texts = [*ordered_texts, *fallback_texts]
+	questionnaire_index = _last_index(existence_texts, config.questionnaire_message)
+	follow_up_index = _last_index(existence_texts, config.follow_up_message)
 	ordered_questionnaire_index = _last_index(ordered_texts, config.questionnaire_message)
 	ordered_follow_up_index = _last_index(ordered_texts, config.follow_up_message)
 	latest_incoming = "\n".join(conversation.incoming_messages)
@@ -188,7 +182,7 @@ def _conversation_status(
 		has_questionnaire=questionnaire_index >= 0 or bool(prior.get("questionnaire_sent_at")),
 		has_follow_up=follow_up_index >= 0 or bool(prior.get("follow_up_sent_at")),
 		has_exchange=bool(prior.get("exchange_contact_at")) or any(
-			"交换微信" in text or "已交换" in text for text in search_texts
+			"交换微信" in text or "已交换" in text for text in existence_texts
 		),
 		candidate_after_questionnaire=(
 			ordered_questionnaire_index >= 0
