@@ -1,4 +1,6 @@
 (() => {
+	const FIRST_RUN_SESSION_KEY = "boss-autopilot-first-run-defaults";
+
 	function setupState() {
 		const data = state.bootstrap || {};
 		return {
@@ -16,6 +18,33 @@
 			target.scrollIntoView({ behavior: "smooth", block: "center" });
 			if (typeof target.focus === "function") target.focus({ preventScroll: true });
 		}, 60);
+	}
+
+	function applySafeFirstRunDefaults({ announce = false } = {}) {
+		const values = {
+			"#autopilot-max-pages": "1",
+			"#autopilot-max-candidates": "5",
+			"#autopilot-refresh-hours": "0",
+			"#autopilot-draft-top": "2",
+		};
+		let changed = false;
+		for (const [selector, value] of Object.entries(values)) {
+			const input = $(selector);
+			if (!input) continue;
+			input.value = value;
+			changed = true;
+		}
+		const chat = $("#autopilot-include-chat");
+		if (chat) chat.checked = false;
+		const force = $("#autopilot-force");
+		if (force) force.checked = false;
+		const autoConfigure = $("#autopilot-auto-configure");
+		if (autoConfigure) autoConfigure.checked = true;
+		if (changed) sessionStorage.setItem(FIRST_RUN_SESSION_KEY, "1");
+		if (announce && changed) {
+			toast("已填入首次验证参数：1 页 / 5 人 / 2 草稿。确认后点击“运行全职位 Autopilot”");
+		}
+		return changed;
 	}
 
 	function openSetupTarget(action) {
@@ -38,25 +67,9 @@
 		if (action === "first-run") {
 			setView("screening");
 			setTimeout(() => {
-				const values = {
-					"#autopilot-max-pages": "1",
-					"#autopilot-max-candidates": "5",
-					"#autopilot-refresh-hours": "0",
-					"#autopilot-draft-top": "2",
-				};
-				for (const [selector, value] of Object.entries(values)) {
-					const input = $(selector);
-					if (input) input.value = value;
-				}
-				const chat = $("#autopilot-include-chat");
-				if (chat) chat.checked = false;
-				const force = $("#autopilot-force");
-				if (force) force.checked = false;
-				const autoConfigure = $("#autopilot-auto-configure");
-				if (autoConfigure) autoConfigure.checked = true;
+				applySafeFirstRunDefaults({ announce: true });
 				const panel = $("#autopilot-panel");
 				if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
-				toast("已填入首次验证参数：1 页 / 5 人 / 2 草稿。确认后点击“运行全职位 Autopilot”");
 			}, 80);
 			return;
 		}
@@ -97,7 +110,10 @@
 			["Research", snapshot.modeReady],
 		];
 		const ready = snapshot.aiReady && snapshot.authReady && snapshot.modeReady;
-		node.innerHTML = `<strong>运行前检查：</strong> ${items.map(([label, done]) => `${done ? "✓" : "○"} ${label}`).join(" · ")}${ready && !snapshot.hasCandidates ? '<br><button type="button" class="button secondary compact-button" data-guide-action="first-run">填入首次 5 人测试参数</button>' : ""}`;
+		if (ready && !snapshot.hasCandidates && !sessionStorage.getItem(FIRST_RUN_SESSION_KEY)) {
+			applySafeFirstRunDefaults();
+		}
+		node.innerHTML = `<strong>运行前检查：</strong> ${items.map(([label, done]) => `${done ? "✓" : "○"} ${label}`).join(" · ")}${ready && !snapshot.hasCandidates ? '<br><button type="button" class="button secondary compact-button" data-guide-action="first-run">恢复首次 5 人测试参数</button>' : ""}`;
 	}
 
 	function renderGuide() {
