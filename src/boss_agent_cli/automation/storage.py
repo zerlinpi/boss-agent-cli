@@ -244,6 +244,8 @@ class AutomationStore:
 						decision_score=item.decision_score,
 					)
 				updated_reviews.append(item)
+				else:
+					updated_reviews.append(item)
 			if pending is None:
 				return None
 			transaction = {
