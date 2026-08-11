@@ -92,6 +92,7 @@ def _settings_from_context(
 	resolved_hook = hook_profile or "none"
 	if resolved_hook not in _HOOK_CHOICES:
 		raise ValueError(f"unknown hook profile: {resolved_hook}")
+	max_retries = cfg.get("max_retries")
 	return CrawlSettings(
 		query=query,
 		city_code=_city_code(city),
@@ -105,7 +106,7 @@ def _settings_from_context(
 		max_requests=int(cfg.get("max_requests") or 20),
 		max_details=int(cfg.get("max_details") or 50),
 		max_seconds=int(cfg.get("max_seconds") or 600),
-		max_retries=int(cfg.get("max_retries") or 1),
+		max_retries=int(max_retries) if max_retries is not None else 1,
 		operating_mode=operating_mode(ctx),
 	)
 

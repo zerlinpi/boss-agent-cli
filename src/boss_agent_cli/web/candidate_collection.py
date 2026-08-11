@@ -21,8 +21,10 @@ def install_candidate_collection_metadata() -> None:
 
 	def candidates(self: Any, job_key: str, *, top: int = 200) -> dict[str, Any]:
 		result = original(self, job_key, top=top)
-		items = result.get("items") if isinstance(result.get("items"), list) else []
-		report = result.get("report") if isinstance(result.get("report"), dict) else {}
+		raw_items = result.get("items")
+		items = raw_items if isinstance(raw_items, list) else []
+		raw_report = result.get("report")
+		report = raw_report if isinstance(raw_report, dict) else {}
 		total = int(report.get("total_candidates") or len(items))
 		result["returned_count"] = len(items)
 		result["total_count"] = total

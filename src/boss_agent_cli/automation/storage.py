@@ -53,17 +53,18 @@ def _acquire_file_lock(fd: int) -> Callable[[], None]:
 	if os.name == "nt":
 		import msvcrt
 
+		api: Any = msvcrt
 		if os.fstat(fd).st_size < 1:
 			os.ftruncate(fd, 1)
 		os.lseek(fd, 0, os.SEEK_SET)
 		try:
-			msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+			api.locking(fd, api.LK_LOCK, 1)
 		except OSError as exc:
 			raise AutomationStorageError("automation 存储锁获取失败") from exc
 
 		def release_windows() -> None:
 			os.lseek(fd, 0, os.SEEK_SET)
-			msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+			api.locking(fd, api.LK_UNLCK, 1)
 
 		return release_windows
 
@@ -244,8 +245,6 @@ class AutomationStore:
 						decision_score=item.decision_score,
 					)
 				updated_reviews.append(item)
-				else:
-					updated_reviews.append(item)
 			if pending is None:
 				return None
 			transaction = {

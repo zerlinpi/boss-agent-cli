@@ -558,7 +558,23 @@ Compose 默认只把容器端口映射到宿主机 `127.0.0.1`，不会默认暴
 
 ---
 
-## 🏗️ 架构
+## ⚙️ 配置
+
+CLI/Agent 的公开配置真源仍是 `boss config` 与 `boss schema --format native`。跨平台调用可显式选择：
+
+```text
+--platform zhipin|zhilian|qiancheng
+```
+
+前程无忧 / 51job (`qiancheng`) 当前只注册占位适配器：`QianchengPlatform (51job 占位适配器，统一返回 NOT_SUPPORTED)`。没有经过 readiness gate 验证的 51job 私有接口不会通过 Web、CLI 或 Browser Bridge 暗中启用。
+
+默认低风险模式下，被策略阻断的敏感动作返回结构化 `COMPLIANCE_BLOCKED`，调用方应停止自动动作并回到官方平台人工处理，而不是切换浏览器/CDP 方式重试。
+
+`boss doctor` 会分别报告浏览器桥扩展与本地桥进程；诊断字段 `bridge_daemon` 表示本地 Bridge daemon 的可达/运行状态。Bridge 只用于用户主动的本地诊断和兼容路径，不得用于规避平台风控。
+
+---
+
+## 🏗️ 技术架构
 
 ```text
 Browser

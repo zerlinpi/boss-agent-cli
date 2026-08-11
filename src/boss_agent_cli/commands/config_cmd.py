@@ -191,10 +191,10 @@ def _parse_value(raw: str, default: Any) -> Any:
 	if isinstance(default, int):
 		return int(raw)
 	if isinstance(default, float):
-		value = float(raw)
-		if not math.isfinite(value):
+		number = float(raw)
+		if not math.isfinite(number):
 			raise ValueError("数字必须是有限值")
-		return value
+		return number
 	if isinstance(default, list):
 		parts = [part.strip() for part in raw.split(",")]
 		if all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in default):

@@ -337,7 +337,8 @@ class TaskManager:
 		with self._lock:
 			for task_id in list(self._tasks):
 				task = self._tasks[task_id]
-				metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+				raw_metadata = task.get("metadata")
+				metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
 				if job_key and str(metadata.get("job_key") or "") == job_key:
 					self._tasks.pop(task_id, None)
 					if self._db is not None:
