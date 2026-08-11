@@ -79,8 +79,6 @@ atexit.register(_close_shared_client)
 
 def _post(url: str, **kwargs: Any) -> httpx.Response:
 	"""Use pooled production I/O while preserving existing monkeypatch/test compatibility."""
-	# Existing integrations and tests may monkeypatch the module-level httpx.post function. Honor
-	# that hook when present; normal production calls use the shared Client connection pool.
 	if httpx.post is not _ORIGINAL_HTTPX_POST:
 		return httpx.post(url, **kwargs)
 	return _shared_client().post(url, **kwargs)
@@ -148,7 +146,7 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
 				seconds = -1.0
 			if math.isfinite(seconds) and 0 <= seconds <= _MAX_RETRY_DELAY_SECONDS:
 				return seconds
-	return min(0.5 * (2 ** attempt), 2.0)
+	return float(min(0.5 * (2 ** attempt), 2.0))
 
 
 class AIService:
