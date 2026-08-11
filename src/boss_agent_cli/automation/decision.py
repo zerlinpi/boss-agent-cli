@@ -1,4 +1,4 @@
-"""Autonomous recruiter decision policy."""
+"""Autonomous recruiter communication decision policy."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def decide_action(
 	config: AutomationConfig,
 	prior: dict[str, str],
 ) -> Decision:
-	"""Choose the next action for a candidate conversation."""
+	"""Choose the next administrative communication action for a candidate conversation."""
 	candidate = conversation.candidate or snapshot_from_conversation(conversation)
 	candidate_key = candidate.key
 	escalation = _escalation_reason(conversation)
@@ -49,13 +49,17 @@ def decide_action(
 	matching = score_candidate(candidate)
 	status = _conversation_status(conversation, prior, config)
 	if status.has_exchange and status.interview_time:
+		# This is only a local administrative lead record. An explicit time supplied by
+		# the candidate is direct evidence for creating that record; it is not an
+		# employment recommendation or invitation decision.
 		return Decision(
 			action=PlatformAction.CREATE_INTERVIEW_LEAD,
-			confidence=min(0.86, matching.score / 100),
-			reason=f"candidate provided interview time; candidate score {matching.score}",
+			confidence=0.95,
+			reason="candidate explicitly provided interview time; create local scheduling lead only",
 			candidate_key=candidate_key,
 			interview_time=status.interview_time,
 			matching=matching,
+			requires_human=bool(matching.risk_flags),
 			risk_flags=matching.risk_flags,
 		)
 	if status.has_exchange:
@@ -92,6 +96,11 @@ def decide_action(
 
 
 def snapshot_from_conversation(conversation: Conversation) -> CandidateSnapshot:
+	"""Build only the communication signals required by legacy automation.
+
+	Job-fit fields such as city, education, and experience are deliberately not
+	extracted here; JD-specific evaluation is handled by Recruiter Autopilot.
+	"""
 	text = "\n".join((
 		conversation.title,
 		conversation.item_title,
@@ -106,15 +115,6 @@ def snapshot_from_conversation(conversation: Conversation) -> CandidateSnapshot:
 		name=conversation.title or str(conversation.fingerprint) or "unknown-candidate",
 		title=conversation.item_title,
 		resume_text=text,
-		city=_extract_first(
-			text,
-			("上海", "北京", "广州", "深圳", "杭州", "成都", "武汉"),
-		),
-		experience_years=_extract_years(text),
-		education=_extract_first(
-			text,
-			("博士", "硕士", "本科", "大专", "中专", "高中", "初中"),
-		),
 		last_active_at=(
 			"active"
 			if any(token in text for token in ("刚刚", "今天", "今日", "在线"))
@@ -122,7 +122,10 @@ def snapshot_from_conversation(conversation: Conversation) -> CandidateSnapshot:
 		),
 		intent_signals=tuple(
 			token
-			for token in ("想看机会", "有兴趣", "可面试", "近期到岗", "观望", "暂不考虑")
+			for token in (
+				"想看机会", "有兴趣", "可面试", "近期到岗",
+				"观望", "暂不考虑", "不考虑", "暂时不看", "在职不看",
+			)
 			if token in text
 		),
 		risk_flags=tuple(
@@ -145,10 +148,10 @@ def _scored_decision(
 	return Decision(
 		action=action,
 		confidence=confidence,
-		reason=f"{reason}; candidate score {matching.score}",
+		reason=f"{reason}; communication-readiness score {matching.score}",
 		candidate_key=candidate_key,
 		message=message,
-		requires_human=confidence < 0.82,
+		requires_human=confidence < 0.82 or bool(matching.risk_flags),
 		matching=matching,
 		risk_flags=matching.risk_flags,
 	)
@@ -161,6 +164,7 @@ def _skip(candidate_key: CandidateKey, reason: str, matching: MatchScore) -> Dec
 		reason=reason,
 		candidate_key=candidate_key,
 		matching=matching,
+		risk_flags=matching.risk_flags,
 	)
 
 
@@ -169,25 +173,31 @@ def _conversation_status(
 	prior: dict[str, str],
 	config: AutomationConfig,
 ) -> ConversationStatus:
-	texts = [message[1] for message in conversation.ordered_messages] or [
-		*conversation.outgoing_messages,
-		*conversation.incoming_messages,
-	]
-	questionnaire_index = _last_index(texts, config.questionnaire_message)
-	follow_up_index = _last_index(texts, config.follow_up_message)
+	# Grouped incoming/outgoing collections prove that a message exists but not when it
+	# occurred. Only ordered_messages can prove that a candidate replied after a
+	# questionnaire or follow-up.
+	ordered_texts = [message[1] for message in conversation.ordered_messages]
+	fallback_texts = [*conversation.outgoing_messages, *conversation.incoming_messages]
+	search_texts = ordered_texts or fallback_texts
+	questionnaire_index = _last_index(search_texts, config.questionnaire_message)
+	follow_up_index = _last_index(search_texts, config.follow_up_message)
+	ordered_questionnaire_index = _last_index(ordered_texts, config.questionnaire_message)
+	ordered_follow_up_index = _last_index(ordered_texts, config.follow_up_message)
 	latest_incoming = "\n".join(conversation.incoming_messages)
 	return ConversationStatus(
-		has_questionnaire=questionnaire_index >= 0
-		or bool(prior.get("questionnaire_sent_at")),
-		has_follow_up=follow_up_index >= 0
-		or bool(prior.get("follow_up_sent_at")),
+		has_questionnaire=questionnaire_index >= 0 or bool(prior.get("questionnaire_sent_at")),
+		has_follow_up=follow_up_index >= 0 or bool(prior.get("follow_up_sent_at")),
 		has_exchange=bool(prior.get("exchange_contact_at")) or any(
-			"交换微信" in text or "已交换" in text for text in texts
+			"交换微信" in text or "已交换" in text for text in search_texts
 		),
-		candidate_after_questionnaire=_has_incoming_after(conversation, questionnaire_index)
-		or bool(prior.get("questionnaire_sent_at") and conversation.incoming_messages),
-		candidate_after_follow_up=_has_incoming_after(conversation, follow_up_index)
-		or bool(prior.get("follow_up_sent_at") and conversation.incoming_messages),
+		candidate_after_questionnaire=(
+			ordered_questionnaire_index >= 0
+			and _has_incoming_after(conversation, ordered_questionnaire_index)
+		),
+		candidate_after_follow_up=(
+			ordered_follow_up_index >= 0
+			and _has_incoming_after(conversation, ordered_follow_up_index)
+		),
 		interview_time=_extract_interview_time(latest_incoming),
 	)
 
@@ -216,15 +226,6 @@ def _escalation_reason(conversation: Conversation) -> str:
 		if token in text:
 			return f"candidate escalation detected: {token}"
 	return ""
-
-
-def _extract_first(text: str, options: tuple[str, ...]) -> str:
-	return next((item for item in options if item in text), "")
-
-
-def _extract_years(text: str) -> float | None:
-	match = re.search(r"(\d+(?:\.\d+)?)\s*年", text)
-	return float(match.group(1)) if match else None
 
 
 def _extract_interview_time(text: str) -> str:
