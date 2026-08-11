@@ -149,12 +149,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Parse Windows one-click PowerShell launchers
+      - name: Parse Windows PowerShell entrypoints
         shell: pwsh
         run: |
           $scripts = @(
             "scripts/start-recruiter-web.ps1",
-            "scripts/start-recruiter-docker.ps1"
+            "scripts/start-recruiter-docker.ps1",
+            "scripts/run-recruiter-autopilot.ps1",
+            "scripts/install-recruiter-autopilot-task.ps1"
           )
           foreach ($script in $scripts) {
             $tokens = $null
@@ -187,9 +189,13 @@ jobs:
           tests/test_config_recovery.py
           tests/test_config_atomic_updates.py
           tests/test_config_value_validation.py
+          tests/test_recruiter_ai_autopilot.py
+          tests/test_recruiter_ai_autopilot_freshness.py
+          tests/test_recruiter_ai_autopilot_lease.py
           tests/test_recruiter_container_auth.py
           tests/test_recruiter_container_identity.py
           tests/test_recruiter_task_result_safety.py
+          tests/test_recruiter_web_autopilot.py
           tests/test_recruiter_web_upload_identity.py
           tests/test_zhilian_reliability.py
 
