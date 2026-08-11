@@ -12,7 +12,7 @@ _DEFAULT_CDP_URL = "http://localhost:9222"
 # 超时常量（秒/毫秒）
 _CDP_PROBE_TIMEOUT = 3           # CDP 探测 HTTP 超时（秒）
 _NAV_TIMEOUT_MS = 15000          # 页面导航超时（毫秒）
-_NETWORKIDLE_GRACE_MS = 3000     # 首页进入 networkidle 的额外宽限（毫秒）
+_RUNTIME_SETTLE_MS = 3000        # 首页 DOM 到位后给 cookie/stoken 运行时传播的固定等待
 _POST_LOGIN_WAIT = 3             # 登录成功后等待 cookie 传播（秒）
 _STOKEN_GENERATION_WAIT = 2      # stoken 生成等待（秒）
 
@@ -80,15 +80,24 @@ def _zhilian_client_id_from(cookies: dict[str, str], page: Any) -> str:
 
 
 def _warm_home_for_runtime(page: Any, home_url: str, *, stage: str) -> None:
-	"""预热首页运行时；networkidle 只尽力等待，不作为必须条件。"""
+	"""Load the platform home page and allow browser-side credential state to settle.
+
+	Modern recruiting pages often keep analytics/WebSocket requests open indefinitely,
+	so Playwright's ``networkidle`` is not a meaningful readiness signal here. The
+	credential extraction path only needs the DOM plus a short propagation window.
+	"""
 	try:
 		page.goto(home_url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-	except Exception as e:
-		print(f"[boss] {stage}：首页导航未在预期时间完成（{e}），继续尝试提取凭证", file=sys.stderr)
+	except Exception:
+		print(f"[boss] {stage}：首页仍在加载，继续同步登录凭证", file=sys.stderr)
+	else:
+		print(f"[boss] {stage}：首页已加载，正在同步登录凭证", file=sys.stderr)
 	try:
-		page.wait_for_load_state("networkidle", timeout=_NETWORKIDLE_GRACE_MS)
-	except Exception as e:
-		print(f"[boss] {stage}：首页未进入 networkidle（{e}），继续提取凭证", file=sys.stderr)
+		page.wait_for_timeout(_RUNTIME_SETTLE_MS)
+	except Exception:
+		# A closing/replaced page should not turn this best-effort propagation delay
+		# into a misleading login failure; extraction below remains authoritative.
+		pass
 
 
 def probe_cdp(cdp_url: str | None = None) -> str | None:
@@ -296,7 +305,7 @@ def _extract_stoken(page: Any) -> str:
 				const match = document.cookie.match(/__zp_stoken__=([^;]+)/);
 				return match ? match[1] : '';
 			}
-		""")
+		"""))
 		if not stoken:
 			stoken = page.evaluate("() => window.__zp_stoken__ || ''")
 		return cast("str", stoken)
