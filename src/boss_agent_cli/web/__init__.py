@@ -26,6 +26,7 @@ from boss_agent_cli.web.lifecycle import install_controller_extensions, install_
 from boss_agent_cli.web.reliability import install_controller_reliability, install_server_reliability
 from boss_agent_cli.web.reply_extension import install_reply_assets
 from boss_agent_cli.web.reply_ordering import install_reply_ordering
+from boss_agent_cli.web.request_boundary import install_request_boundary
 from boss_agent_cli.web.screening_cache import install_screening_cache
 from boss_agent_cli.web.task_controls import install_task_control_server, install_task_manager_controls
 from boss_agent_cli.web.task_result_safety import install_task_result_safety
@@ -70,6 +71,7 @@ install_ui_reliability_assets(_server)
 install_current_job_result_assets(_server)
 install_task_control_server(_server)
 install_autopilot_server(_server)
+install_request_boundary(_server)
 build_server = _server.build_server
 main = _server.main
 
