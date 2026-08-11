@@ -6,11 +6,13 @@ on:
     paths:
       - "src/boss_agent_cli/automation/**"
       - "src/boss_agent_cli/cache/**"
+      - "src/boss_agent_cli/index_cache.py"
       - "src/boss_agent_cli/resume/**"
       - "src/boss_agent_cli/pipeline_state.py"
       - "src/boss_agent_cli/commands/pipeline.py"
       - "tests/test_automation_*.py"
-      - "tests/test_cache_recovery.py"
+      - "tests/test_cache_*.py"
+      - "tests/test_index_cache_hardening.py"
       - "tests/test_resume_store_hardening.py"
       - "tests/test_pipeline_state_hardening.py"
       - ".github/workflows/windows-automation.yml"
@@ -19,11 +21,13 @@ on:
     paths:
       - "src/boss_agent_cli/automation/**"
       - "src/boss_agent_cli/cache/**"
+      - "src/boss_agent_cli/index_cache.py"
       - "src/boss_agent_cli/resume/**"
       - "src/boss_agent_cli/pipeline_state.py"
       - "src/boss_agent_cli/commands/pipeline.py"
       - "tests/test_automation_*.py"
-      - "tests/test_cache_recovery.py"
+      - "tests/test_cache_*.py"
+      - "tests/test_index_cache_hardening.py"
       - "tests/test_resume_store_hardening.py"
       - "tests/test_pipeline_state_hardening.py"
       - ".github/workflows/windows-automation.yml"
@@ -53,8 +57,13 @@ jobs:
         run: >-
           uv run pytest -q
           tests/test_automation_runner_lease.py
+          tests/test_automation_runner_lease_process.py
           tests/test_automation_storage_hardening.py
+          tests/test_automation_review_integrity.py
           tests/test_automation_execution_checkpoints.py
+          tests/test_automation_direct_checkpoints.py
           tests/test_cache_recovery.py
+          tests/test_cache_row_safety.py
+          tests/test_index_cache_hardening.py
           tests/test_resume_store_hardening.py
           tests/test_pipeline_state_hardening.py
