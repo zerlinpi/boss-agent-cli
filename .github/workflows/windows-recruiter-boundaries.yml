@@ -1,0 +1,66 @@
+name: Windows Recruiter Boundaries
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "src/boss_agent_cli/ai/config.py"
+      - "src/boss_agent_cli/web/**"
+      - "src/boss_agent_cli/commands/ai_config_safety.py"
+      - "src/boss_agent_cli/commands/register.py"
+      - "tests/test_ai_config_validation.py"
+      - "tests/test_recruiter_ai_config_safety.py"
+      - "tests/test_recruiter_analytics_safety.py"
+      - "tests/test_recruiter_request_boundary.py"
+      - ".github/workflows/windows-recruiter-boundaries.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "src/boss_agent_cli/ai/config.py"
+      - "src/boss_agent_cli/web/**"
+      - "src/boss_agent_cli/commands/ai_config_safety.py"
+      - "src/boss_agent_cli/commands/register.py"
+      - "tests/test_ai_config_validation.py"
+      - "tests/test_recruiter_ai_config_safety.py"
+      - "tests/test_recruiter_analytics_safety.py"
+      - "tests/test_recruiter_request_boundary.py"
+      - ".github/workflows/windows-recruiter-boundaries.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-recruiter-boundaries:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run Windows recruiter boundary regressions
+        run: >-
+          uv run pytest -q
+          tests/test_ai_config.py
+          tests/test_ai_config_migration.py
+          tests/test_ai_config_validation.py
+          tests/test_recruiter_ai_config_safety.py
+          tests/test_recruiter_analytics_safety.py
+          tests/test_recruiter_host_safety.py
+          tests/test_recruiter_request_boundary.py
+
+      - name: Import recruiter Web surface
+        run: >-
+          uv run python -c
+          "from pathlib import Path; from boss_agent_cli.web import RecruiterWebController, build_server;
+          c=RecruiterWebController(Path('.ci-recruiter-boundary-data')); s,a=build_server(c, port=0);
+          print('boundary server port:', s.server_port); a.tasks.close(); s.server_close()"
