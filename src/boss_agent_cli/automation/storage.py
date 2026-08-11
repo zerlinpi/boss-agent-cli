@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, cast
+from typing import Any, Callable, Iterator, cast
 from uuid import uuid4
 
 from boss_agent_cli.automation.models import AutomationEvent, PendingAction, PlatformAction, ReviewItem
@@ -49,6 +49,34 @@ def _atomic_write(path: Path, data: bytes) -> None:
 			pass
 
 
+def _acquire_file_lock(fd: int) -> Callable[[], None]:
+	if os.name == "nt":
+		import msvcrt
+
+		if os.fstat(fd).st_size < 1:
+			os.ftruncate(fd, 1)
+		os.lseek(fd, 0, os.SEEK_SET)
+		try:
+			msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+		except OSError as exc:
+			raise AutomationStorageError("automation 存储锁获取失败") from exc
+
+		def release_windows() -> None:
+			os.lseek(fd, 0, os.SEEK_SET)
+			msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+		return release_windows
+
+	import fcntl
+
+	fcntl.flock(fd, fcntl.LOCK_EX)
+
+	def release_posix() -> None:
+		fcntl.flock(fd, fcntl.LOCK_UN)
+
+	return release_posix
+
+
 def _model_row(item: Any) -> dict[str, Any]:
 	row = asdict(item)
 	action = row.get("action")
@@ -72,7 +100,7 @@ def _finite_unit(value: Any, *, label: str) -> float:
 
 
 class AutomationStore:
-	"""Small persistence store for recruiter automation with atomic authoritative writes."""
+	"""File-backed recruiter automation store with atomic authoritative writes."""
 
 	def __init__(self, data_dir: Path) -> None:
 		self.root = data_dir / "automation"
@@ -98,35 +126,15 @@ class AutomationStore:
 	@contextmanager
 	def _locked(self) -> Iterator[None]:
 		fd = os.open(self._lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-		unlock = None
+		release: Callable[[], None] | None = None
 		try:
-			if os.name == "nt":
-				import msvcrt
-
-				if os.fstat(fd).st_size < 1:
-					os.ftruncate(fd, 1)
-				os.lseek(fd, 0, os.SEEK_SET)
-				try:
-					msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
-				except OSError as exc:
-					raise AutomationStorageError("automation 存储锁获取失败") from exc
-
-				def unlock() -> None:
-					os.lseek(fd, 0, os.SEEK_SET)
-					msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-			else:
-				import fcntl
-
-				fcntl.flock(fd, fcntl.LOCK_EX)
-
-				def unlock() -> None:
-					fcntl.flock(fd, fcntl.LOCK_UN)
+			release = _acquire_file_lock(fd)
 			_private_chmod(self._lock_path)
 			yield
 		finally:
-			if unlock is not None:
+			if release is not None:
 				try:
-					unlock()
+					release()
 				except OSError:
 					pass
 			os.close(fd)
@@ -135,7 +143,8 @@ class AutomationStore:
 	def _default_state() -> dict[str, Any]:
 		return {"conversations": {}, "autonomy": {}, "safety": {}}
 
-	def _validate_state(self, payload: Any) -> dict[str, Any]:
+	@staticmethod
+	def _validate_state(payload: Any) -> dict[str, Any]:
 		if not isinstance(payload, dict):
 			raise AutomationStorageError("state.json 损坏：顶层必须是对象")
 		state = cast("dict[str, Any]", payload)
@@ -220,7 +229,6 @@ class AutomationStore:
 				if item.id == review_id and item.status == "review":
 					item.status = "approved"
 					item.reviewed_at = reviewed_at
-					updated_reviews.append(item)
 					pending = PendingAction(
 						id=item.id,
 						candidate_key=item.candidate_key,
@@ -235,8 +243,7 @@ class AutomationStore:
 						reason=item.reason,
 						decision_score=item.decision_score,
 					)
-				else:
-					updated_reviews.append(item)
+				updated_reviews.append(item)
 			if pending is None:
 				return None
 			transaction = {
@@ -247,9 +254,9 @@ class AutomationStore:
 				self._approval_tx_path,
 				(json.dumps(transaction, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
 			)
-			self._write_jsonl_unlocked(self.review_path.name, transaction["reviews"])
+			self._write_jsonl_unlocked(self.review_path.name, cast("list[dict[str, Any]]", transaction["reviews"]))
 			if not any(str(row.get("id")) == pending.id for row in pending_rows):
-				pending_rows.append(transaction["pending_action"])
+				pending_rows.append(cast("dict[str, Any]", transaction["pending_action"]))
 				self._write_jsonl_unlocked(self.pending_path.name, pending_rows)
 			self._approval_tx_path.unlink(missing_ok=True)
 			return pending
@@ -276,19 +283,23 @@ class AutomationStore:
 			payload = json.loads(self._approval_tx_path.read_text(encoding="utf-8"))
 		except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
 			raise AutomationStorageError("approval transaction 损坏，automation 已安全停止") from exc
-		if not isinstance(payload, dict) or not isinstance(payload.get("reviews"), list) or not isinstance(payload.get("pending_action"), dict):
+		if not isinstance(payload, dict):
 			raise AutomationStorageError("approval transaction 损坏，automation 已安全停止")
-		review_rows = payload["reviews"]
-		if any(not isinstance(row, dict) for row in review_rows):
+		review_rows = payload.get("reviews")
+		pending_raw = payload.get("pending_action")
+		if not isinstance(review_rows, list) or any(not isinstance(row, dict) for row in review_rows):
 			raise AutomationStorageError("approval transaction reviews 损坏")
-		pending_row = cast("dict[str, Any]", payload["pending_action"])
-		# Validate before mutating either queue.
-		[_review_from_row(cast("dict[str, Any]", row)) for row in review_rows]
-		_pending_from_row(pending_row)
-		self._write_jsonl_unlocked(self.review_path.name, cast("list[dict[str, Any]]", review_rows))
+		if not isinstance(pending_raw, dict):
+			raise AutomationStorageError("approval transaction pending_action 损坏")
+		validated_reviews = [
+			_model_row(_review_from_row(cast("dict[str, Any]", row)))
+			for row in review_rows
+		]
+		pending = _pending_from_row(cast("dict[str, Any]", pending_raw))
+		pending_row = _model_row(pending)
+		self._write_jsonl_unlocked(self.review_path.name, validated_reviews)
 		pending_rows = self._read_jsonl_unlocked(self.pending_path.name)
-		pending_id = str(pending_row.get("id") or "")
-		if not any(str(row.get("id") or "") == pending_id for row in pending_rows):
+		if not any(str(row.get("id")) == pending.id for row in pending_rows):
 			pending_rows.append(pending_row)
 			self._write_jsonl_unlocked(self.pending_path.name, pending_rows)
 		self._approval_tx_path.unlink(missing_ok=True)
