@@ -15,6 +15,7 @@ from boss_agent_cli.automation.models import (
 	PlatformAction,
 	RunReport,
 )
+from boss_agent_cli.automation.runner_lease import AutomationRunnerBusy, runner_lease
 from boss_agent_cli.automation.safety import SafetyGuard
 from boss_agent_cli.automation.storage import AutomationStore
 
@@ -28,7 +29,36 @@ def run_automation_cycle(
 	dry_run: bool,
 	limit: int | None = None,
 ) -> RunReport:
-	"""Run one recruiter automation cycle."""
+	"""Run one recruiter automation cycle under a cross-process single-runner lease."""
+	try:
+		with runner_lease(store.root):
+			return _run_automation_cycle_locked(
+				adapter,
+				store,
+				config,
+				platform=platform,
+				dry_run=dry_run,
+				limit=limit,
+			)
+	except AutomationRunnerBusy as exc:
+		return RunReport(
+			status="BUSY",
+			events=(),
+			dry_run=dry_run,
+			platform=platform,
+			mode=config.mode,
+		)
+
+
+def _run_automation_cycle_locked(
+	adapter: RecruiterAutomationPlatform,
+	store: AutomationStore,
+	config: AutomationConfig,
+	*,
+	platform: str,
+	dry_run: bool,
+	limit: int | None,
+) -> RunReport:
 	state = store.read_state()
 	guard = SafetyGuard(config, state, dry_run=dry_run)
 	events: list[AutomationEvent] = []
@@ -54,7 +84,13 @@ def run_automation_cycle(
 		)
 
 	adapter.ensure_session()
-	events.extend(process_pending(adapter, store, guard, platform, dry_run))
+	events.extend(process_pending(
+		store=store,
+		state=state,
+		adapters={platform: adapter},
+		guard=guard,
+		dry_run=dry_run,
+	))
 	refs = adapter.scan_conversations(list(config.tabs), limit or config.max_per_tab)
 	for ref in refs:
 		if ref.diagnostic:
