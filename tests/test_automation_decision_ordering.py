@@ -60,3 +60,27 @@ def test_prior_follow_up_does_not_reclassify_historical_incoming() -> None:
 	)
 	assert status.has_follow_up is True
 	assert status.candidate_after_follow_up is False
+
+
+def test_partial_ordered_window_does_not_hide_older_questionnaire_marker() -> None:
+	config = AutomationConfig()
+	conversation = Conversation(
+		title="candidate",
+		outgoing_messages=(config.questionnaire_message,),
+		incoming_messages=("older incoming",),
+		ordered_messages=(("incoming", "recent unrelated message"),),
+	)
+	status = decision_module._conversation_status(conversation, {}, config)
+	assert status.has_questionnaire is True
+	assert status.candidate_after_questionnaire is False
+
+
+def test_partial_ordered_window_does_not_hide_exchange_marker() -> None:
+	config = AutomationConfig()
+	conversation = Conversation(
+		title="candidate",
+		outgoing_messages=("已交换微信",),
+		ordered_messages=(("incoming", "recent message"),),
+	)
+	status = decision_module._conversation_status(conversation, {}, config)
+	assert status.has_exchange is True
