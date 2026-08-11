@@ -2,6 +2,11 @@
 
 from boss_agent_cli.web import controller as _controller
 from boss_agent_cli.web import tasks as _tasks
+from boss_agent_cli.web.autopilot_extension import (
+	install_autopilot_controller,
+	install_autopilot_server,
+	install_autopilot_task_safety,
+)
 from boss_agent_cli.web.boss_draft_scope import install_boss_draft_scope
 from boss_agent_cli.web.candidate_freshness import install_candidate_freshness
 from boss_agent_cli.web.config_persistence import install_web_config_persistence
@@ -46,8 +51,10 @@ install_screening_cache()
 install_current_job_results()
 install_upload_policy()
 install_boss_draft_scope()
+install_autopilot_controller()
 install_task_manager_controls(_tasks)
 install_task_result_safety(_tasks)
+install_autopilot_task_safety(_tasks)
 
 from boss_agent_cli.web import server as _server  # noqa: E402
 
@@ -62,6 +69,7 @@ install_contact_assets(_server)
 install_ui_reliability_assets(_server)
 install_current_job_result_assets(_server)
 install_task_control_server(_server)
+install_autopilot_server(_server)
 build_server = _server.build_server
 main = _server.main
 
