@@ -16,6 +16,7 @@ from boss_agent_cli.commands.recruiter.ai_autopilot_lease import (
 )
 from boss_agent_cli.compliance import require_capability_mode
 from boss_agent_cli.web import controller as controller_module
+from boss_agent_cli.web.autopilot_progress import wrap_autopilot_dependencies
 
 _CONTROLLER_INSTALLED = False
 _SERVER_INSTALLED = False
@@ -81,10 +82,11 @@ def install_autopilot_controller() -> None:
 		try:
 			with recruiter_autopilot_lease(self.data_dir):
 				with get_recruiter_platform_instance(self._context(), auth) as platform:
+					progress_platform, progress_service = wrap_autopilot_dependencies(platform, service, progress)
 					result = run_profiled_autopilot(
 						data_dir=self.data_dir,
-						platform=platform,
-						service=service,
+						platform=progress_platform,
+						service=progress_service,
 						store=self.store,
 						max_pages=_bounded_int(payload, "max_pages", 30, 1, 100),
 						max_candidates_per_job=_bounded_int(payload, "max_candidates_per_job", 2000, 1, 10000),
