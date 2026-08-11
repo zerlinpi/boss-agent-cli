@@ -32,6 +32,8 @@ class PlatformAction(str, Enum):
 
 @unique
 class EventStatus(str, Enum):
+	# EXECUTED is the adapter-level success status used by checkpointed execution.
+	EXECUTED = "EXECUTED"
 	AUTO_EXECUTED = "AUTO_EXECUTED"
 	QUEUED_FOR_REVIEW = "QUEUED_FOR_REVIEW"
 	QUEUED_PENDING_ACTION = "QUEUED_PENDING_ACTION"
@@ -121,34 +123,62 @@ class AutomationEvent:
 	result: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class ReviewItem:
+	"""Human-review record with backward-compatible timestamp and scoring fields."""
+
 	id: str
-	ts: str
-	platform: str
 	candidate_key: str
-	action: str
-	status: str
-	confidence: float
-	reason: str
+	platform: str
+	action: PlatformAction | str
 	message: str = ""
+	reason: str = ""
+	decision_score: float = 0.0
+	confidence: float = 0.0
+	payload: dict[str, Any] = field(default_factory=dict)
+	status: str = "review"
+	created_at: str = ""
+	ts: str = ""
 	reviewed_at: str = ""
 	rejection_reason: str = ""
 
+	def __post_init__(self) -> None:
+		self.action = PlatformAction(self.action)
+		if not self.created_at and self.ts:
+			self.created_at = self.ts
+		if not self.ts and self.created_at:
+			self.ts = self.created_at
+		if not self.created_at:
+			self.created_at = self.ts = ""
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass
 class PendingAction:
+	"""Approved action waiting for execution or verification."""
+
 	id: str
-	ts: str
-	platform: str
 	candidate_key: str
-	action: str
-	status: str
-	confidence: float
-	reason: str
+	platform: str
+	action: PlatformAction | str
 	message: str = ""
+	payload: dict[str, Any] = field(default_factory=dict)
 	approved_review_id: str = ""
+	status: str = "pending"
+	created_at: str = ""
+	ts: str = ""
+	confidence: float = 0.0
+	reason: str = ""
+	decision_score: float = 0.0
 	updated_at: str = ""
+
+	def __post_init__(self) -> None:
+		self.action = PlatformAction(self.action)
+		if not self.created_at and self.ts:
+			self.created_at = self.ts
+		if not self.ts and self.created_at:
+			self.ts = self.created_at
+		if not self.created_at:
+			self.created_at = self.ts = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,3 +195,18 @@ class RunReport:
 	dry_run: bool
 	platform: str
 	mode: AutomationMode
+
+
+@dataclass(slots=True)
+class CycleResult:
+	"""Generic cycle result used by cross-process runner wrappers."""
+
+	cycle_id: str
+	started_at: str
+	finished_at: str
+	duration_ms: int
+	references_scanned: int
+	pending_processed: int
+	events: list[Any] = field(default_factory=list)
+	errors: list[str] = field(default_factory=list)
+	stopped: bool = False
