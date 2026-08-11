@@ -7,6 +7,8 @@ import pytest
 from boss_agent_cli.crawler import transport
 from boss_agent_cli.crawler.transport import CrawlRiskError, DrissionCrawlerSession
 
+_REDACTED = "[REDACTED]"
+
 
 def _session(tmp_path: Path) -> DrissionCrawlerSession:
 	return DrissionCrawlerSession(
@@ -18,7 +20,7 @@ def _session(tmp_path: Path) -> DrissionCrawlerSession:
 	)
 
 
-def test_detail_client_copies_browser_cookies_and_stoken_without_exposing_values(tmp_path, monkeypatch):
+def test_detail_client_copies_browser_credential_fields_without_logging_values(tmp_path, monkeypatch):
 	created: dict[str, Any] = {}
 
 	class Response:
@@ -45,21 +47,21 @@ def test_detail_client_copies_browser_cookies_and_stoken_without_exposing_values
 	session._page = SimpleNamespace(
 		user_agent="test-agent",
 		cookies=lambda: [
-			{"name": "session_cookie", "value": "fixture-secret"},
-			{"name": "__zp_stoken__", "value": "fixture-stoken"},
+			{"name": "session_cookie", "value": _REDACTED},
+			{"name": "__zp_stoken__", "value": _REDACTED},
 		],
 	)
 
-	payload = session.fetch_detail("fixture-security-id")
+	payload = session.fetch_detail(_REDACTED)
 	assert payload["code"] == 0
 	assert created["url"] == transport.JOB_CARD_URL
 	assert created["params"] == {
-		"securityId": "fixture-security-id",
-		"__zp_stoken__": "fixture-stoken",
+		"securityId": _REDACTED,
+		"__zp_stoken__": _REDACTED,
 	}
 	assert created["client_kwargs"]["cookies"] == {
-		"session_cookie": "fixture-secret",
-		"__zp_stoken__": "fixture-stoken",
+		"session_cookie": _REDACTED,
+		"__zp_stoken__": _REDACTED,
 	}
 	assert created["client_kwargs"]["headers"]["User-Agent"] == "test-agent"
 	assert created["raised"] is True
@@ -75,7 +77,7 @@ def test_fetch_detail_empty_identifier_is_local_and_non_object_response_is_rejec
 
 	session._details = Client()
 	with pytest.raises(RuntimeError, match="job_card 响应不是对象"):
-		session.fetch_detail("fixture-security-id")
+		session.fetch_detail(_REDACTED)
 
 
 def test_security_page_and_risk_codes_stop_crawl_immediately(tmp_path):
