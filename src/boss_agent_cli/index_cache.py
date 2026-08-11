@@ -80,7 +80,7 @@ def try_save_index(data_dir: Path, jobs: list[dict[str, Any]], *, source: str = 
 	try:
 		save_index(data_dir, jobs, source=source)
 		return True
-	except OSError as exc:
+	except (OSError, TypeError, ValueError) as exc:
 		if logger:
 			logger.warning(f"索引缓存写入失败，已跳过: {exc}")
 		return False
@@ -100,7 +100,7 @@ def _load_cache(data_dir: Path) -> dict[str, Any] | None:
 	jobs = payload.get("jobs")
 	if not isinstance(jobs, list) or any(not isinstance(item, dict) for item in jobs):
 		return None
-	return cast("dict[str, Any]", payload)
+	return payload
 
 
 def get_job_by_index(data_dir: Path, index: int) -> dict[str, Any] | None:
