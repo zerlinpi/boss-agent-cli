@@ -9,7 +9,7 @@
 				<div><p class="eyebrow">RECRUITER AUTOPILOT</p><h3>全职位增量同步</h3></div>
 				<span class="badge manual_review">人工最终确认</span>
 			</div>
-			<p>自动读取 BOSS 当前职位、逐页抓取新投递、解析简历、AI 评分、排名并生成回复草稿。不会自动淘汰、录用或发送消息。</p>
+			<p>自动读取 BOSS 当前职位和最新 JD，生成岗位画像与安全评分规则，逐页抓取新投递、解析简历、AI 评分、排名并生成回复草稿。不会自动淘汰、录用或发送消息。</p>
 			<div class="compact-form">
 				<div class="two-col">
 					<label><span>每职位最大页数</span><input id="autopilot-max-pages" type="number" min="1" max="100" value="30"></label>
@@ -19,7 +19,7 @@
 					<label><span>已处理复查间隔（小时）</span><input id="autopilot-refresh-hours" type="number" min="0" max="720" value="24"></label>
 					<label><span>每职位生成草稿数</span><input id="autopilot-draft-top" type="number" min="0" max="100" value="10"></label>
 				</div>
-				<label class="check-row"><input id="autopilot-auto-configure" type="checkbox" checked><span>自动读取未配置 BOSS 职位的 JD 并建立本地岗位</span></label>
+				<label class="check-row"><input id="autopilot-auto-configure" type="checkbox" checked><span>自动读取未配置 BOSS 职位的 JD、建立岗位并生成 AI 岗位画像</span></label>
 				<label class="check-row"><input id="autopilot-include-chat" type="checkbox"><span>生成草稿时读取最近聊天上下文</span></label>
 				<label class="check-row"><input id="autopilot-force" type="checkbox"><span>强制重新拉取并重新评估所有候选人</span></label>
 			</div>
@@ -57,6 +57,9 @@
 		const totals = result.totals || {};
 		const jobs = Array.isArray(result.jobs) ? result.jobs : [];
 		const unconfigured = Array.isArray(result.unconfigured_platform_jobs) ? result.unconfigured_platform_jobs : [];
+		const profileSync = result.job_profile_sync || {};
+		const profileUpdates = Array.isArray(profileSync.updated) ? profileSync.updated : [];
+		const profileWarnings = Array.isArray(profileSync.warnings) ? profileSync.warnings : [];
 		node.classList.remove("hidden");
 		node.innerHTML = `
 			<div class="autopilot-metrics">
@@ -67,6 +70,8 @@
 				<div><span>回复草稿</span><strong>${totals.reply_drafts || 0}</strong></div>
 				<div><span>失败</span><strong>${totals.failed || 0}</strong></div>
 			</div>
+			${profileUpdates.length ? `<div class="autopilot-human-note"><strong>本轮更新 ${profileUpdates.length} 个 AI 岗位画像：</strong><br>${profileUpdates.slice(0, 8).map(item => `${escapeHtml(item.job_key || item.job_id || "岗位")} · ${item.reason === "jd_changed" ? "BOSS JD 已变化，评分规则已重建" : "首次生成岗位画像"}`).join("<br>")}</div>` : ""}
+			${profileWarnings.length ? `<div class="autopilot-warning"><strong>${profileWarnings.length} 个岗位画像需要关注：</strong><br>${profileWarnings.slice(0, 8).map(item => `${escapeHtml(item.job_key || item.job_id || "岗位")} · ${escapeHtml(item.warning || "岗位画像未更新")}`).join("<br>")}</div>` : ""}
 			${result.catalog_warning ? `<div class="autopilot-warning">${escapeHtml(result.catalog_warning)}</div>` : ""}
 			<div class="autopilot-job-list">
 				${jobs.map(job => `<div class="autopilot-job-row"><div><strong>${escapeHtml(job.title || job.job_key || "岗位")}</strong><span>${escapeHtml(job.job_key || "")} · ${escapeHtml(job.job_id || "")}</span></div><div><span>发现 ${job.discovered_count || 0}</span><span>评估 ${job.evaluated_count || 0}</span><span>跳过 ${job.freshness_skipped_count || 0}</span><span>草稿 ${job.reply_draft_count || 0}</span><span class="${job.failed_count ? "risk-text" : ""}">失败 ${job.failed_count || 0}</span></div></div>`).join("") || '<div class="empty-state small">本轮没有可处理职位</div>'}
