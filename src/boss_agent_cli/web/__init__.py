@@ -2,6 +2,7 @@
 
 from boss_agent_cli.web import controller as _controller
 from boss_agent_cli.web import tasks as _tasks
+from boss_agent_cli.web.ai_config_safety import install_ai_config_safety
 from boss_agent_cli.web.analytics_safety import install_analytics_safety
 from boss_agent_cli.web.autopilot_extension import (
 	install_autopilot_controller,
@@ -47,6 +48,7 @@ install_web_config_persistence()
 install_controller_reliability()
 install_reply_ordering()
 install_controller_write_input_safety()
+install_ai_config_safety()
 install_candidate_freshness()
 install_job_analysis_safety()
 install_screening_cache()
