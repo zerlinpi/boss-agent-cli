@@ -2,7 +2,9 @@
 
 import click
 
+from boss_agent_cli.commands.recruiter import ai_autopilot as _autopilot_module
 from boss_agent_cli.commands.recruiter.ai_autopilot import autopilot_cmd
+from boss_agent_cli.commands.recruiter.ai_autopilot_freshness import install_autopilot_freshness
 from boss_agent_cli.commands.recruiter.ai_autopilot_lease import install_autopilot_command_lease
 from boss_agent_cli.commands.recruiter.ai_local import (
 	batch_cmd,
@@ -25,6 +27,7 @@ from boss_agent_cli.commands.recruiter.ai_reply_freshness import install_reply_f
 install_read_error_guard(rank_cmd)
 install_read_error_guard(report_cmd)
 install_reply_freshness(reply_cmd)
+install_autopilot_freshness(_autopilot_module)
 install_autopilot_command_lease(autopilot_cmd)
 
 
