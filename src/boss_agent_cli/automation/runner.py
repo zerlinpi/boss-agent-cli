@@ -6,8 +6,9 @@ from typing import Any
 
 from boss_agent_cli.automation.adapters import RecruiterAutomationPlatform
 from boss_agent_cli.automation.config import AutomationConfig
+from boss_agent_cli.automation.direct_checkpoint import process_ref_checkpointed
 from boss_agent_cli.automation.events import make_event
-from boss_agent_cli.automation.execution import process_pending, process_ref
+from boss_agent_cli.automation.execution import process_pending
 from boss_agent_cli.automation.models import (
 	AutomationEvent,
 	AutomationMode,
@@ -106,7 +107,7 @@ def _run_automation_cycle_locked(
 			store.append_event(event)
 			continue
 		events.append(
-			process_ref(
+			process_ref_checkpointed(
 				adapter,
 				store,
 				config,
