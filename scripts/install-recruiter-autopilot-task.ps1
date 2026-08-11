@@ -29,6 +29,7 @@ if ($MaxCandidatesPerJob -lt 1 -or $MaxCandidatesPerJob -gt 10000) { throw "MaxC
 if ($RefreshSeenHours -lt 0 -or $RefreshSeenHours -gt 720) { throw "RefreshSeenHours 必须在 0-720 之间" }
 if ($DraftTop -lt 0 -or $DraftTop -gt 100) { throw "DraftTop 必须在 0-100 之间" }
 
+$DisplayDataDir = if ($DataDir) { $DataDir } else { Join-Path $HOME ".boss-agent" }
 $ArgumentParts = @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
@@ -69,7 +70,7 @@ Write-Host "Task: $TaskName"
 Write-Host "Daily: $DailyAt"
 Write-Host "User: $Identity (Interactive only)"
 Write-Host "Runner: $Runner"
-Write-Host "Data:  $([string]($(if ($DataDir) { $DataDir } else { Join-Path $HOME '.boss-agent' })))"
+Write-Host "Data:  $DisplayDataDir"
 Write-Host ""
 Write-Host "立即测试一次："
 Write-Host "Start-ScheduledTask -TaskName `"$TaskName`""
