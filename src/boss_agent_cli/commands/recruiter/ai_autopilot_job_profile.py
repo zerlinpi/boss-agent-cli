@@ -10,6 +10,8 @@ from boss_agent_cli.ai.service import AIServiceError, ChatService
 from boss_agent_cli.commands.recruiter import ai_autopilot as autopilot_module
 from boss_agent_cli.recruiter_ai import RecruiterAIError, RecruiterAIStore, normalize_rubric, parse_ai_json
 
+_CORE_RUN_AUTOPILOT = autopilot_module.run_autopilot
+
 
 def _profile_job(service: ChatService, jd_text: str) -> tuple[dict[str, Any], dict[str, Any]]:
 	messages = [
@@ -160,7 +162,7 @@ def run_profiled_autopilot(
 		service=service,
 		auto_configure=auto_configure,
 	)
-	result = autopilot_module.run_autopilot(
+	result = _CORE_RUN_AUTOPILOT(
 		data_dir=data_dir,
 		platform=platform,
 		service=service,
