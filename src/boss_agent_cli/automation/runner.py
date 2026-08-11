@@ -40,7 +40,7 @@ def run_automation_cycle(
 				dry_run=dry_run,
 				limit=limit,
 			)
-	except AutomationRunnerBusy as exc:
+	except AutomationRunnerBusy:
 		return RunReport(
 			status="BUSY",
 			events=(),
