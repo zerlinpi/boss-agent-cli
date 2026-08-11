@@ -390,6 +390,8 @@ def _lead_status(config: AutomationConfig, decision: Decision, dry_run: bool) ->
 	gated = _common_gate(config, decision)
 	if gated is not None:
 		return gated
+	if decision.action not in config.allowed_actions:
+		return EventStatus.QUEUED_PENDING_ACTION
 	return EventStatus.DRY_RUN if dry_run else EventStatus.AUTO_EXECUTED
 
 
