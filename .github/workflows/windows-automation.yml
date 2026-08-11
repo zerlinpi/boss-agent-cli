@@ -10,6 +10,8 @@ on:
       - "src/boss_agent_cli/resume/**"
       - "src/boss_agent_cli/pipeline_state.py"
       - "src/boss_agent_cli/commands/pipeline.py"
+      - "src/boss_agent_cli/commands/agent*.py"
+      - "tests/test_agent_cli_safety.py"
       - "tests/test_automation_*.py"
       - "tests/test_cache_*.py"
       - "tests/test_index_cache_hardening.py"
@@ -25,6 +27,8 @@ on:
       - "src/boss_agent_cli/resume/**"
       - "src/boss_agent_cli/pipeline_state.py"
       - "src/boss_agent_cli/commands/pipeline.py"
+      - "src/boss_agent_cli/commands/agent*.py"
+      - "tests/test_agent_cli_safety.py"
       - "tests/test_automation_*.py"
       - "tests/test_cache_*.py"
       - "tests/test_index_cache_hardening.py"
@@ -56,6 +60,9 @@ jobs:
       - name: Run Windows automation and persistence regressions
         run: >-
           uv run pytest -q
+          tests/test_agent_cli_safety.py
+          tests/test_automation_config_safety.py
+          tests/test_automation_state_validation.py
           tests/test_automation_runner_lease.py
           tests/test_automation_runner_lease_process.py
           tests/test_automation_storage_hardening.py
