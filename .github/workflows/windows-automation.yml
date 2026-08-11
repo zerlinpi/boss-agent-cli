@@ -63,6 +63,8 @@ jobs:
           tests/test_agent_cli_safety.py
           tests/test_automation_config_safety.py
           tests/test_automation_state_validation.py
+          tests/test_automation_decision_ordering.py
+          tests/test_automation_reply_safety.py
           tests/test_automation_runner_lease.py
           tests/test_automation_runner_lease_process.py
           tests/test_automation_storage_hardening.py
