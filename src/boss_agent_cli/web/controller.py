@@ -9,8 +9,9 @@ import re
 import statistics
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, cast
+
+import click
 
 from boss_agent_cli.ai.config import AIConfigStore, PROVIDER_BASE_URLS
 from boss_agent_cli.ai.service import AIService, AIServiceError
@@ -97,17 +98,20 @@ class RecruiterWebController:
 	def operating_mode(self) -> str:
 		return str(self._config().get("operating_mode") or "assisted")
 
-	def _context(self) -> SimpleNamespace:
+	def _context(self) -> click.Context:
 		config = self._config()
-		return SimpleNamespace(obj={
-			"data_dir": self.data_dir,
-			"logger": self.logger,
-			"platform": self.platform,
-			"delay": tuple(config.get("request_delay", (1.5, 3.0))),
-			"cdp_url": self.cdp_url or config.get("cdp_url"),
-			"config": config,
-			"role": "recruiter",
-		})
+		return click.Context(
+			click.Command("recruiter-web"),
+			obj={
+				"data_dir": self.data_dir,
+				"logger": self.logger,
+				"platform": self.platform,
+				"delay": tuple(config.get("request_delay", (1.5, 3.0))),
+				"cdp_url": self.cdp_url or config.get("cdp_url"),
+				"config": config,
+				"role": "recruiter",
+			},
+		)
 
 	def _auth(self) -> AuthManager:
 		return AuthManager(self.data_dir, logger=self.logger, platform=self.platform)
@@ -163,7 +167,8 @@ class RecruiterWebController:
 
 	@staticmethod
 	def _job_summary(job: dict[str, Any]) -> dict[str, Any]:
-		metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+		raw_metadata = job.get("metadata")
+		metadata = cast("dict[str, Any]", raw_metadata) if isinstance(raw_metadata, dict) else {}
 		return {
 			"job_key": job.get("job_key", ""),
 			"title": metadata.get("title") or job.get("job_key", ""),
@@ -493,7 +498,8 @@ class RecruiterWebController:
 			raise WebConsoleError("INVALID_SCREEN_INPUT", "单次最多上传 100 份简历")
 		job = self.get_job(job_key)
 		jd_text = str(job.get("jd_text") or "")
-		rubric = normalize_rubric(job.get("rubric") if isinstance(job.get("rubric"), dict) else None)
+		raw_rubric = job.get("rubric")
+		rubric = normalize_rubric(cast("dict[str, Any]", raw_rubric) if isinstance(raw_rubric, dict) else None)
 		service = self._service()
 		processed: list[str] = []
 		skipped: list[str] = []
@@ -568,7 +574,8 @@ class RecruiterWebController:
 			raise WebConsoleError("INVALID_SCREEN_INPUT", "请选择岗位并填写 BOSS 职位 ID")
 		job = self.get_job(job_key)
 		jd_text = str(job.get("jd_text") or "")
-		rubric = normalize_rubric(job.get("rubric") if isinstance(job.get("rubric"), dict) else None)
+		raw_rubric = job.get("rubric")
+		rubric = normalize_rubric(cast("dict[str, Any]", raw_rubric) if isinstance(raw_rubric, dict) else None)
 		service = self._service()
 		ctx = self._context()
 		processed: list[str] = []
@@ -634,9 +641,16 @@ class RecruiterWebController:
 				if not isinstance(evaluation, dict):
 					continue
 				conversation = ""
-				source = record.get("source")
-				if include_chat and isinstance(source, dict) and source.get("friend_id") not in (None, ""):
-					chat_result = platform.chat_history(int(source["friend_id"]), count=30, max_msg_id=None)
+				raw_source = record.get("source")
+				source = cast("dict[str, Any]", raw_source) if isinstance(raw_source, dict) else {}
+				friend_id = source.get("friend_id")
+				if (
+					include_chat
+					and not isinstance(friend_id, bool)
+					and isinstance(friend_id, (int, str))
+					and str(friend_id).strip()
+				):
+					chat_result = platform.chat_history(int(friend_id), count=30, max_msg_id=None)
 					if platform.is_success(chat_result):
 						conversation = conversation_to_text(platform.unwrap_data(chat_result) or {})
 				try:
