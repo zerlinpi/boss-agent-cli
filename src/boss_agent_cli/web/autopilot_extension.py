@@ -102,7 +102,8 @@ def install_autopilot_controller() -> None:
 			raise controller_module.WebConsoleError(exc.code, str(exc), status=409) from exc
 		if progress:
 			progress(100, "全职位增量同步、AI 评分与草稿生成完成")
-		totals = result.get("totals") if isinstance(result.get("totals"), dict) else {}
+		raw_totals = result.get("totals")
+		totals = raw_totals if isinstance(raw_totals, dict) else {}
 		self.audit.append(
 			"autopilot.completed",
 			entity_type="screening",
