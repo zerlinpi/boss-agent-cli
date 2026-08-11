@@ -10,9 +10,9 @@ def test_explicit_empty_allowed_actions_stays_empty() -> None:
 	assert config.allowed_actions == ()
 
 
-def test_unknown_allowed_actions_do_not_expand_to_defaults() -> None:
-	config = automation_config_from_dict({"allowed_actions": ["typo-action"]})
-	assert config.allowed_actions == ()
+def test_unknown_allowed_actions_are_rejected() -> None:
+	with pytest.raises(ValueError, match="未知动作"):
+		automation_config_from_dict({"allowed_actions": ["typo-action"]})
 
 
 def test_nonfinite_automation_thresholds_are_rejected() -> None:
