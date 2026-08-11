@@ -5,6 +5,7 @@ import click
 from boss_agent_cli.commands.recruiter import ai_autopilot as _autopilot_module
 from boss_agent_cli.commands.recruiter.ai_autopilot import autopilot_cmd
 from boss_agent_cli.commands.recruiter.ai_autopilot_freshness import install_autopilot_freshness
+from boss_agent_cli.commands.recruiter.ai_autopilot_job_profile import run_profiled_autopilot
 from boss_agent_cli.commands.recruiter.ai_autopilot_lease import install_autopilot_command_lease
 from boss_agent_cli.commands.recruiter.ai_local import (
 	batch_cmd,
@@ -28,6 +29,9 @@ install_read_error_guard(rank_cmd)
 install_read_error_guard(report_cmd)
 install_reply_freshness(reply_cmd)
 install_autopilot_freshness(_autopilot_module)
+# autopilot_cmd resolves this module global at runtime, so the CLI automatically performs
+# current-JD refresh + safe AI job profiling before the candidate sync pipeline.
+_autopilot_module.run_autopilot = run_profiled_autopilot
 install_autopilot_command_lease(autopilot_cmd)
 
 
