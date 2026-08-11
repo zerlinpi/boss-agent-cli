@@ -23,17 +23,18 @@ def _now() -> str:
 def _lock_windows(fd: int) -> Callable[[], None]:
 	import msvcrt
 
+	api: Any = msvcrt
 	if os.fstat(fd).st_size < 1:
 		os.ftruncate(fd, 1)
 	os.lseek(fd, 0, os.SEEK_SET)
 	try:
-		msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+		api.locking(fd, api.LK_NBLCK, 1)
 	except OSError as exc:
 		raise AutomationRunnerBusy("已有 automation runner 正在执行，本轮不重复运行") from exc
 
 	def unlock() -> None:
 		os.lseek(fd, 0, os.SEEK_SET)
-		msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+		api.locking(fd, api.LK_UNLCK, 1)
 
 	return unlock
 
@@ -60,8 +61,6 @@ def runner_lease(root: Path) -> Iterator[None]:
 	fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
 	unlock: Callable[[], None] | None = None
 	try:
-		# Keep byte 0 reserved for the Windows byte-range lock. Metadata always starts
-		# at byte 1 so truncating/replacing metadata never invalidates the locked byte.
 		if os.fstat(fd).st_size < 1:
 			os.ftruncate(fd, 1)
 		unlock = _lock_windows(fd) if os.name == "nt" else _lock_posix(fd)
