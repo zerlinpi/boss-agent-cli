@@ -17,6 +17,7 @@ DEFAULT_ALLOWED_ACTIONS: Final = (
 	PlatformAction.EXCHANGE_CONTACT,
 	PlatformAction.CREATE_INTERVIEW_LEAD,
 )
+_SUPPORTED_AUTOMATION_PLATFORMS: Final = frozenset({"zhilian", "zhipin"})
 
 
 @unique
@@ -86,6 +87,16 @@ def _string_tuple(value: Any, *, label: str, default: tuple[str, ...]) -> tuple[
 	return tuple(str(item).strip() for item in value if str(item).strip())
 
 
+def _platforms(data: dict[str, Any]) -> tuple[str, ...]:
+	values = _string_tuple(data.get("platforms"), label="platforms", default=_DEFAULT.platforms)
+	if not values:
+		raise ValueError("platforms 不能为空")
+	unknown = sorted({value for value in values if value not in _SUPPORTED_AUTOMATION_PLATFORMS})
+	if unknown:
+		raise ValueError(f"platforms 包含不支持的招聘自动化平台: {', '.join(unknown)}")
+	return tuple(dict.fromkeys(values))
+
+
 def _allowed_actions(data: dict[str, Any]) -> tuple[PlatformAction, ...]:
 	if "allowed_actions" not in data:
 		return DEFAULT_ALLOWED_ACTIONS
@@ -97,7 +108,18 @@ def _allowed_actions(data: dict[str, Any]) -> tuple[PlatformAction, ...]:
 	unknown = sorted({value for value in values if value not in allowed_action_values})
 	if unknown:
 		raise ValueError(f"allowed_actions 包含未知动作: {', '.join(unknown)}")
-	return tuple(PlatformAction(value) for value in values)
+	return tuple(dict.fromkeys(PlatformAction(value) for value in values))
+
+
+def _stop_markers(data: dict[str, Any]) -> tuple[str, ...]:
+	custom = _string_tuple(
+		data.get("stop_on_page_text"),
+		label="stop_on_page_text",
+		default=(),
+	)
+	# Baseline risk markers are safety invariants. User configuration may extend them
+	# but cannot remove CAPTCHA/risk-control detection from autonomous operation.
+	return tuple(dict.fromkeys((*_DEFAULT.stop_on_page_text, *custom)))
 
 
 def automation_config_from_dict(raw: dict[str, Any] | None) -> AutomationConfig:
@@ -118,7 +140,7 @@ def automation_config_from_dict(raw: dict[str, Any] | None) -> AutomationConfig:
 
 	return AutomationConfig(
 		mode=AutomationMode(data.get("mode", _DEFAULT.mode.value)),
-		platforms=_string_tuple(data.get("platforms"), label="platforms", default=_DEFAULT.platforms),
+		platforms=_platforms(data),
 		allowed_actions=_allowed_actions(data),
 		human_review_threshold=human_review_threshold,
 		auto_execute_threshold=auto_execute_threshold,
@@ -144,9 +166,5 @@ def automation_config_from_dict(raw: dict[str, Any] | None) -> AutomationConfig:
 		questionnaire_message=str(data.get("questionnaire_message", _DEFAULT.questionnaire_message)),
 		follow_up_message=str(data.get("follow_up_message", _DEFAULT.follow_up_message)),
 		reply_strategy=ReplyStrategy(data.get("reply_strategy", _DEFAULT.reply_strategy.value)),
-		stop_on_page_text=_string_tuple(
-			data.get("stop_on_page_text"),
-			label="stop_on_page_text",
-			default=_DEFAULT.stop_on_page_text,
-		),
+		stop_on_page_text=_stop_markers(data),
 	)
