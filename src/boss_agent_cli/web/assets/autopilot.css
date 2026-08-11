@@ -129,8 +129,7 @@
 }
 
 @media (max-width: 900px) {
-	.autopilot-metrics,
-	.screening-advanced-grid {
+	.autopilot-metrics {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 
