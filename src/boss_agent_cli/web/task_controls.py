@@ -32,12 +32,10 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 	global _MANAGER_INSTALLED
 	if _MANAGER_INSTALLED:
 		return
-	_MANAGER_INSTALLED = True
 
 	manager_cls = tasks_module.TaskManager
 	original_load_from_db = manager_cls._load_from_db
-	original_prune = manager_cls._prune_locked
-	original_delete_for_job = manager_cls.delete_for_job
+	original_trim = manager_cls._trim_locked
 
 	def ensure_state(self: Any) -> None:
 		if not hasattr(self, "_boss_cancel_events"):
@@ -49,6 +47,16 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		ensure_state(self)
 		event = self._boss_cancel_events.get(task_id)
 		return bool(event and event.is_set())
+
+	def update_task(self: Any, task_id: str, **changes: Any) -> dict[str, Any] | None:
+		with self._lock:
+			task = self._tasks.get(task_id)
+			if task is None:
+				return None
+			changes["updated_at"] = tasks_module._now()
+			task.update(changes)
+			self._persist(task)
+			return deepcopy(task)
 
 	def finish_cancel(self: Any, task_id: str, *, message: str = "任务已取消") -> dict[str, Any] | None:
 		with self._lock:
@@ -119,9 +127,9 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 			self._tasks[task_id] = task
 			self._boss_cancel_events[task_id] = event
 			self._persist(task)
-			self._prune_locked()
+			self._trim_locked()
 		try:
-			future = self._executor.submit(self._run, task_id, function)
+			future = self._executor.submit(run, self, task_id, function)
 		except RuntimeError as exc:
 			with self._lock:
 				task.update({
@@ -169,17 +177,21 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 			self._persist(task)
 			return deepcopy(task)
 
-	def run(self: Any, task_id: str, function: Callable[..., dict[str, Any]]) -> None:
+	def run(
+		self: Any,
+		task_id: str,
+		function: Callable[[Callable[[int, str], None]], dict[str, Any]],
+	) -> None:
 		ensure_state(self)
 		if cancellation_requested(self, task_id):
 			finish_cancel(self, task_id)
 			return
-		self._update(task_id, status="running", progress=1, message="正在执行")
+		update_task(self, task_id, status="running", progress=1, message="正在执行")
 
 		def progress(value: int, message: str) -> None:
 			if cancellation_requested(self, task_id):
 				raise TaskCancelledError()
-			self._update(task_id, progress=max(0, min(int(value), 100)), message=message)
+			update_task(self, task_id, progress=max(0, min(int(value), 100)), message=message)
 
 		try:
 			result = function(progress)
@@ -191,7 +203,8 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 				finish_cancel(self, task_id)
 				return
 			code = getattr(exc, "code", exc.__class__.__name__)
-			self._update(
+			update_task(
+				self,
 				task_id,
 				status="failed",
 				message=str(exc),
@@ -201,7 +214,8 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 		if cancellation_requested(self, task_id):
 			finish_cancel(self, task_id)
 			return
-		self._update(
+		update_task(
+			self,
 			task_id,
 			status="completed",
 			progress=100,
@@ -224,9 +238,9 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 					return True
 		return False
 
-	def prune_locked(self: Any) -> None:
+	def trim_locked(self: Any) -> None:
 		ensure_state(self)
-		original_prune(self)
+		original_trim(self)
 		alive = set(self._tasks)
 		for task_id in list(self._boss_cancel_events):
 			if task_id not in alive:
@@ -235,15 +249,35 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 
 	def delete_for_job(self: Any, job_key: str) -> int:
 		ensure_state(self)
-		result = original_delete_for_job(self, job_key)
-		alive = set(self._tasks)
-		for task_id in list(self._boss_cancel_events):
-			if task_id not in alive:
+		deleted = 0
+		with self._lock:
+			for task_id in list(self._tasks):
+				task = self._tasks[task_id]
+				metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+				result = task.get("result") if isinstance(task.get("result"), dict) else {}
+				task_job_key = str(metadata.get("job_key") or result.get("job_key") or "")
+				if task_job_key != job_key:
+					continue
+				event = self._boss_cancel_events.get(task_id)
+				if event is not None:
+					event.set()
+				future = self._boss_futures.get(task_id)
+				if future is not None:
+					future.cancel()
+				self._tasks.pop(task_id, None)
 				self._boss_cancel_events.pop(task_id, None)
 				self._boss_futures.pop(task_id, None)
-		return result
+				if self._db is not None:
+					self._db.execute("DELETE FROM web_tasks WHERE id = ?", (task_id,))
+				deleted += 1
+			if self._db is not None:
+				self._db.commit()
+		return deleted
 
-	def close(self: Any) -> None:
+	def recent(self: Any, *, limit: int = 50) -> list[dict[str, Any]]:
+		return self.list(limit=limit)
+
+	def close(self: Any, *, wait: bool = False) -> None:
 		ensure_state(self)
 		with self._lock:
 			self._boss_closed = True
@@ -263,18 +297,19 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 					"updated_at": tasks_module._now(),
 				})
 				self._persist(task)
-		self._executor.shutdown(wait=False, cancel_futures=True)
+		self._executor.shutdown(wait=wait, cancel_futures=True)
 		with self._lock:
 			self._close_database()
 
 	setattr(manager_cls, "_load_from_db", load_from_db)
 	setattr(manager_cls, "submit", submit)
-	setattr(manager_cls, "_run", run)
 	setattr(manager_cls, "cancel", cancel)
 	setattr(manager_cls, "has_active_screening", has_active_screening)
-	setattr(manager_cls, "_prune_locked", prune_locked)
+	setattr(manager_cls, "_trim_locked", trim_locked)
 	setattr(manager_cls, "delete_for_job", delete_for_job)
+	setattr(manager_cls, "recent", recent)
 	setattr(manager_cls, "close", close)
+	_MANAGER_INSTALLED = True
 
 
 def install_task_control_server(server_module: Any) -> None:
