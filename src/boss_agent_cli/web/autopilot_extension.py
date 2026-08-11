@@ -33,6 +33,21 @@ def _bounded_int(payload: dict[str, Any], key: str, default: int, minimum: int, 
 	return max(minimum, min(value, maximum))
 
 
+def _require_complete_auth(controller: Any) -> None:
+	status = controller.auth_status()
+	if not bool(status.get("logged_in")):
+		raise controller_module.WebConsoleError("AUTH_REQUIRED", "请先在设置页面完成 BOSS 登录。", status=409)
+	if status.get("state") == "complete":
+		return
+	health = status.get("health") if isinstance(status.get("health"), dict) else {}
+	recovery = str(health.get("recovery_action") or "请重新登录；如仍为 partial，使用 Chrome CDP 刷新完整登录态")
+	raise controller_module.WebConsoleError(
+		"AUTH_INCOMPLETE",
+		f"BOSS 登录态不完整，暂不启动 Autopilot。{recovery}",
+		status=409,
+	)
+
+
 def install_autopilot_controller() -> None:
 	"""Add run/status methods to RecruiterWebController without duplicating pipeline logic."""
 	global _CONTROLLER_INSTALLED
@@ -60,6 +75,7 @@ def install_autopilot_controller() -> None:
 			require_capability_mode(self.operating_mode(), "recruiter-resume")
 		except ValueError as exc:
 			raise controller_module.WebConsoleError("COMPLIANCE_BLOCKED", str(exc), status=409) from exc
+		_require_complete_auth(self)
 		include_chat = bool(payload.get("include_chat", False))
 		if include_chat:
 			try:
