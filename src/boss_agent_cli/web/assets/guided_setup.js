@@ -65,6 +65,20 @@
 		}
 	}
 
+	function renderAuthQuality() {
+		const auth = state.bootstrap?.auth || {};
+		if (!auth.logged_in || auth.state === "complete") return;
+		const recovery = auth.health?.recovery_action || "请重新登录或使用 Chrome CDP 刷新完整登录态";
+		const sidebar = $("#sidebar-auth-text");
+		if (sidebar) sidebar.textContent = "BOSS 登录待刷新";
+		const system = $("#system-auth");
+		if (system) system.textContent = "登录态不完整";
+		const description = $("#auth-description");
+		if (description) description.textContent = `登录态不完整（${auth.state || "partial"}）。${recovery}`;
+		const badge = $("#auth-badge");
+		if (badge) setBadge(badge, "需刷新", "manual_review");
+	}
+
 	function renderAutopilotReadiness(snapshot) {
 		const panel = $("#autopilot-panel");
 		if (!panel) return;
@@ -91,6 +105,7 @@
 		const onboarding = $("#onboarding");
 		if (!onboarding) return;
 		const snapshot = setupState();
+		renderAuthQuality();
 		renderAutopilotReadiness(snapshot);
 		if (snapshot.hasCandidates) {
 			onboarding.classList.add("hidden");
