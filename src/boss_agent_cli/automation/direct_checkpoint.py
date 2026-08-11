@@ -10,7 +10,6 @@ from boss_agent_cli.automation.events import make_event, now_iso, stable_action_
 from boss_agent_cli.automation.execution import _pending_action, _review_item, status_for_decision, update_prior
 from boss_agent_cli.automation.models import (
 	AutomationEvent,
-	CandidateKey,
 	ConversationRef,
 	Decision,
 	EventStatus,
@@ -84,8 +83,6 @@ def _handle_existing_inflight(
 	inflight["status"] = "verification-required"
 
 	if review.status == "rejected":
-		# Rejection means a human chose not to retry the uncertain action. Record a
-		# cooldown marker so the next decision cycle cannot immediately send it again.
 		prior[_marker_for(action)] = review.reviewed_at or now_iso()
 		prior.pop("inflight_action", None)
 		store.write_state(state)
@@ -132,7 +129,7 @@ def process_ref_checkpointed(
 	dry_run: bool,
 	ref: ConversationRef,
 ) -> AutomationEvent:
-	"""Process one conversation without ever blindly retrying an uncertain side effect."""
+	"""Process one conversation without blindly retrying an uncertain side effect."""
 	conversation = adapter.read_conversation(ref)
 	candidate_key = conversation.title or str(conversation.fingerprint) or ref.id
 	conversations = state.setdefault("conversations", {})
@@ -214,7 +211,6 @@ def process_ref_checkpointed(
 		store.append_event(event)
 		return event
 
-	# If execute_action raises, the checkpoint intentionally remains persisted.
 	result = adapter.execute_action(decision.action, decision.message, ref)
 	if result.status != "executed":
 		reason = str(result.details.get("reason", result.status))
