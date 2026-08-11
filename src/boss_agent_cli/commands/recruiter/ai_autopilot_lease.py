@@ -19,17 +19,18 @@ class RecruiterAutopilotBusy(RuntimeError):
 def _lock_windows(fd: int) -> Callable[[], None]:
 	import msvcrt
 
+	api: Any = msvcrt
 	if os.fstat(fd).st_size < 1:
 		os.ftruncate(fd, 1)
 	os.lseek(fd, 0, os.SEEK_SET)
 	try:
-		msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+		api.locking(fd, api.LK_NBLCK, 1)
 	except OSError as exc:
 		raise RecruiterAutopilotBusy("已有 Recruiter Autopilot 正在运行，本轮不会重复执行") from exc
 
 	def unlock() -> None:
 		os.lseek(fd, 0, os.SEEK_SET)
-		msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+		api.locking(fd, api.LK_UNLCK, 1)
 
 	return unlock
 
