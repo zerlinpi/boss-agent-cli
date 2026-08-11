@@ -10,11 +10,13 @@ from boss_agent_cli.automation.models import (
 	PlatformAction,
 	RunReport,
 )
+from boss_agent_cli.automation.reply_safety import install_reply_draft_safety
 from boss_agent_cli.automation.state_validation import install_nested_state_validation
 from boss_agent_cli.automation.storage import AutomationStore
 
 install_nested_state_validation(AutomationStore)
 install_decision_ordering_safety()
+install_reply_draft_safety()
 
 __all__ = [
 	"ActionResult",
