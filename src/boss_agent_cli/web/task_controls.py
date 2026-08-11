@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future
 from copy import deepcopy
 from importlib.resources import files
 from threading import Event
