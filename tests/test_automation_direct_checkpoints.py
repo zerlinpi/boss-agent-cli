@@ -2,6 +2,7 @@ import pytest
 
 from boss_agent_cli.automation import direct_checkpoint as checkpoint
 from boss_agent_cli.automation.config import AutomationConfig
+from boss_agent_cli.automation.execution import process_pending
 from boss_agent_cli.automation.models import (
 	ActionResult,
 	CandidateKey,
@@ -48,6 +49,34 @@ def _decision() -> Decision:
 def _install_decision(monkeypatch) -> None:
 	monkeypatch.setattr(checkpoint, "decide_action", lambda *args, **kwargs: _decision())
 	monkeypatch.setattr(checkpoint, "apply_reply_strategy", lambda decision, *args, **kwargs: decision)
+
+
+def _crash_then_create_verification(store, monkeypatch) -> str:
+	_install_decision(monkeypatch)
+	state = store.read_state()
+	with pytest.raises(RuntimeError):
+		checkpoint.process_ref_checkpointed(
+			Adapter(fail=True),
+			store,
+			AutomationConfig(),
+			SafetyGuard(AutomationConfig(), state, dry_run=False),
+			state,
+			"mock",
+			False,
+			ConversationRef(id="ref-1", tab="new"),
+		)
+	restarted_state = store.read_state()
+	checkpoint.process_ref_checkpointed(
+		Adapter(),
+		store,
+		AutomationConfig(),
+		SafetyGuard(AutomationConfig(), restarted_state, dry_run=False),
+		restarted_state,
+		"mock",
+		False,
+		ConversationRef(id="ref-1", tab="new"),
+	)
+	return store.read_reviews()[0].id
 
 
 def test_direct_action_crash_leaves_durable_inflight_checkpoint(tmp_path, monkeypatch) -> None:
@@ -145,3 +174,53 @@ def test_dry_run_never_creates_direct_inflight_checkpoint(tmp_path, monkeypatch)
 	assert event.status == EventStatus.DRY_RUN.value
 	assert adapter.calls == 0
 	assert "inflight_action" not in state["conversations"]["candidate-1"]
+
+
+def test_approved_verification_retries_once_through_pending_and_clears_inflight(tmp_path, monkeypatch) -> None:
+	store = AutomationStore(tmp_path)
+	review_id = _crash_then_create_verification(store, monkeypatch)
+	pending = store.approve_review(review_id, "2026-08-11T03:00:00+00:00")
+	assert pending is not None
+
+	state = store.read_state()
+	adapter = Adapter()
+	events = process_pending(
+		store=store,
+		state=state,
+		adapters={"mock": adapter},
+		guard=SafetyGuard(AutomationConfig(), state, dry_run=False),
+		dry_run=False,
+	)
+
+	assert adapter.calls == 1
+	assert events[-1].status == EventStatus.AUTO_EXECUTED.value
+	persisted = store.read_state()["conversations"]["candidate-1"]
+	assert persisted["questionnaire_sent_at"]
+	assert "inflight_action" not in persisted
+	assert store.read_pending()[0].status == "executed"
+
+
+def test_rejected_verification_suppresses_retry_and_clears_inflight(tmp_path, monkeypatch) -> None:
+	store = AutomationStore(tmp_path)
+	review_id = _crash_then_create_verification(store, monkeypatch)
+	rejected = store.reject_review(review_id, "confirmed already sent", "2026-08-11T03:00:00+00:00")
+	assert rejected is not None
+
+	state = store.read_state()
+	adapter = Adapter()
+	event = checkpoint.process_ref_checkpointed(
+		adapter,
+		store,
+		AutomationConfig(),
+		SafetyGuard(AutomationConfig(), state, dry_run=False),
+		state,
+		"mock",
+		False,
+		ConversationRef(id="ref-1", tab="new"),
+	)
+
+	assert adapter.calls == 0
+	assert event.status == EventStatus.SKIPPED.value
+	persisted = store.read_state()["conversations"]["candidate-1"]
+	assert persisted["questionnaire_sent_at"] == "2026-08-11T03:00:00+00:00"
+	assert "inflight_action" not in persisted
