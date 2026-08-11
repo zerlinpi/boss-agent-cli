@@ -47,6 +47,30 @@
 		return changed;
 	}
 
+	function simplifyScreeningChoices() {
+		const grid = $(".screening-grid");
+		const autopilot = $("#autopilot-panel");
+		if (!grid || !autopilot) return;
+
+		if (grid.firstElementChild !== autopilot) grid.prepend(autopilot);
+		if ($("#advanced-screening-options")) return;
+
+		const secondaryPanels = [...grid.children].filter(node => node.classList?.contains("action-panel") && node !== autopilot);
+		if (!secondaryPanels.length) return;
+
+		const details = document.createElement("details");
+		details.id = "advanced-screening-options";
+		details.className = "panel screening-advanced";
+		details.innerHTML = `
+			<summary>高级筛选方式 <span>本地文件 / 单岗位</span></summary>
+			<p>主流程优先使用全职位 Autopilot。只有需要手工上传简历，或明确只处理一个 BOSS 职位时再展开这里。</p>
+			<div class="screening-advanced-grid"></div>
+		`;
+		grid.append(details);
+		const advancedGrid = details.querySelector(".screening-advanced-grid");
+		for (const panel of secondaryPanels) advancedGrid?.append(panel);
+	}
+
 	function openSetupTarget(action) {
 		if (action === "ai") {
 			setView("settings");
@@ -67,6 +91,7 @@
 		if (action === "first-run") {
 			setView("screening");
 			setTimeout(() => {
+				simplifyScreeningChoices();
 				applySafeFirstRunDefaults({ announce: true });
 				const panel = $("#autopilot-panel");
 				if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -117,6 +142,7 @@
 	}
 
 	function renderGuide() {
+		simplifyScreeningChoices();
 		if (!state.bootstrap) return;
 		const onboarding = $("#onboarding");
 		if (!onboarding) return;
