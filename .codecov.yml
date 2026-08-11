@@ -30,8 +30,7 @@ ignore:
   - "docs/"
   - "mcp-server/"
   - "scripts/"
-  # 真实浏览器 / 守护进程链路：单测只能造出无意义的桩覆盖，排除后让
-  # patch 门槛聚焦在真正可测的命令层与纯逻辑上。
+  # daemon 的 aiohttp + WebSocket 长驻主循环仍需要真实并发连接生命周期；
+  # PID / start / stop 的确定性进程管理已由单测覆盖。其余两条浏览器边界可用
+  # fake page / CDP / httpx 做行为级测试，因此不再整体排除覆盖率统计。
   - "src/boss_agent_cli/bridge/daemon.py"
-  - "src/boss_agent_cli/crawler/transport.py"
-  - "src/boss_agent_cli/automation/zhilian_cdp.py"
