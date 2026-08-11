@@ -63,10 +63,35 @@ _AGENT_SAFETY_COMMANDS = (
 	agent.agent_stats_cmd,
 	agent.stop_cmd,
 )
+_RUNTIME_ERROR_CODES = {
+	"INVALID_AI_CONFIG": {
+		"message": "AI 配置校验失败",
+		"recoverable": True,
+		"recovery_action": "修正 provider/model/base-url/temperature/max-tokens/API key 后重试",
+	},
+	"INVALID_AUTOMATION_CONFIG": {
+		"message": "招聘自动化配置校验失败",
+		"recoverable": True,
+		"recovery_action": "修正 automation 的 mode、阈值、限额和 allowed_actions 后重试",
+	},
+	"AUTOMATION_STATE_CORRUPT": {
+		"message": "招聘自动化本地状态或队列损坏",
+		"recoverable": True,
+		"recovery_action": "检查 ~/.boss-agent/automation 下的 state/queue 文件并从备份修复",
+	},
+}
+
+
+def _register_runtime_error_codes() -> None:
+	"""Keep static schema aligned with structured errors installed at runtime."""
+	error_codes = schema.SCHEMA_DATA.get("error_codes")
+	if isinstance(error_codes, dict):
+		error_codes.update(_RUNTIME_ERROR_CODES)
 
 
 def register_candidate_commands(cli: click.Group) -> None:
 	"""Register candidate and shared top-level commands."""
+	_register_runtime_error_codes()
 	install_ai_config_command_safety(ai_cmd.ai_config_cmd)
 	for command in _AGENT_SAFETY_COMMANDS:
 		install_agent_command_safety(command)
