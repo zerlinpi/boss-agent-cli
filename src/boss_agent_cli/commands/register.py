@@ -129,8 +129,8 @@ def _register_recruiter_ai_schema() -> None:
 		return
 	subcommands["ai"] = (
 		"本地招聘 AI 工作台：configure/jobs/evaluate/evaluate-geek/screen/"
-		"screen-applications/batch/rank/report/mark/reply；只生成辅助评分和回复草稿，"
-		"不自动录用、淘汰或发送消息"
+		"screen-applications/autopilot/batch/rank/report/mark/reply；autopilot 可自动同步当前 BOSS 职位、"
+		"增量抓取投递、评分、排名并生成回复草稿，但不自动录用、淘汰或发送消息"
 	)
 
 
