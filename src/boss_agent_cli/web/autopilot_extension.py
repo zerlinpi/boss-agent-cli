@@ -6,7 +6,9 @@ from importlib.resources import files
 from typing import Any, Callable
 
 from boss_agent_cli.commands._recruiter_platform import get_recruiter_platform_instance
+from boss_agent_cli.commands.recruiter import ai_autopilot as _autopilot_module
 from boss_agent_cli.commands.recruiter.ai_autopilot import RecruiterAutopilotState, run_autopilot
+from boss_agent_cli.commands.recruiter.ai_autopilot_freshness import install_autopilot_freshness
 from boss_agent_cli.commands.recruiter.ai_autopilot_lease import (
 	RecruiterAutopilotBusy,
 	recruiter_autopilot_lease,
@@ -17,6 +19,8 @@ from boss_agent_cli.web import controller as controller_module
 _CONTROLLER_INSTALLED = False
 _SERVER_INSTALLED = False
 _TASKS_INSTALLED = False
+
+install_autopilot_freshness(_autopilot_module)
 
 
 def _bounded_int(payload: dict[str, Any], key: str, default: int, minimum: int, maximum: int) -> int:
