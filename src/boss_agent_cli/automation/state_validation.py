@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 from boss_agent_cli.automation.models import PlatformAction
 from boss_agent_cli.automation.storage import AutomationStorageError
@@ -109,7 +109,6 @@ def install_nested_state_validation(store_cls: type[Any]) -> None:
 	original: Callable[[Any], dict[str, Any]] = store_cls._validate_state
 
 	def validate(payload: Any) -> dict[str, Any]:
-		state = original(payload)
-		return validate_nested_state(cast("dict[str, Any]", state))
+		return validate_nested_state(original(payload))
 
 	setattr(store_cls, "_validate_state", staticmethod(validate))
