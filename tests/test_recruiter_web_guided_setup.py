@@ -58,6 +58,20 @@ def test_guided_setup_keeps_only_core_navigation_visible_by_default() -> None:
 	assert "自动筛选" in text
 
 
+def test_guided_setup_collapses_nonessential_ai_and_login_controls() -> None:
+	text = files("boss_agent_cli.web.assets").joinpath("guided_setup.js").read_text(encoding="utf-8")
+
+	assert 'details.id = "advanced-ai-settings"' in text
+	assert "高级 AI 设置" in text
+	assert '$("#ai-base-url")?.closest("label")' in text
+	assert '$("#ai-temperature")?.closest(".two-col")' in text
+	assert 'details.id = "advanced-login-settings"' in text
+	assert "登录高级选项" in text
+	assert '$("#cookie-source")?.closest("label")' in text
+	assert '$("#force-cdp")?.closest("label")' in text
+	assert 'event.target.value === "custom"' in text
+
+
 def test_primary_action_tracks_the_next_required_step() -> None:
 	text = files("boss_agent_cli.web.assets").joinpath("guided_setup.js").read_text(encoding="utf-8")
 
