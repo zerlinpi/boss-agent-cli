@@ -114,7 +114,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-recruiter-exe.ps1
 
-      - name: Verify desktop release layout
+      - name: Verify and execute frozen desktop package
         shell: pwsh
         run: |
           $exe = Get-ChildItem "dist/BossRecruitAI-v*-win64/BossRecruitAI.exe" | Select-Object -First 1
@@ -124,3 +124,8 @@ jobs:
           if ($exe.Length -le 0 -or $zip.Length -le 0) { throw "Desktop artifacts are empty" }
           Write-Host "EXE: $($exe.FullName) ($($exe.Length) bytes)"
           Write-Host "ZIP: $($zip.FullName) ($($zip.Length) bytes)"
+          $process = Start-Process -FilePath $exe.FullName -ArgumentList "--self-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Frozen desktop self-test failed with exit code $($process.ExitCode)"
+          }
+          Write-Host "Frozen desktop self-test passed."
