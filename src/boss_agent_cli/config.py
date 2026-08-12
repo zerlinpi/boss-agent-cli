@@ -11,6 +11,7 @@ _CONFIG_LOCK_TIMEOUT = 5.0
 _CONFIG_STALE_LOCK_SECONDS = 60.0
 _LOG_LEVELS = {"debug", "info", "warning", "error"}
 _ROLES = {"candidate", "recruiter"}
+_SAFE_DEFAULT_OPERATING_MODE = "assisted"
 
 DEFAULTS: dict[str, Any] = {
 	"request_delay": [1.5, 3.0],
@@ -20,7 +21,7 @@ DEFAULTS: dict[str, Any] = {
 	"export_dir": None,
 	"platform": "zhipin",
 	"role": "candidate",
-	"operating_mode": "assisted",
+	"operating_mode": _SAFE_DEFAULT_OPERATING_MODE,
 	"low_risk_mode": True,
 	"automation": {
 		"mode": "autonomous",
@@ -213,9 +214,10 @@ def load_config(config_path: Path | None) -> dict[str, Any]:
 		if "low_risk_mode" in user_cfg:
 			mode = "research" if user_cfg["low_risk_mode"] is False else "assisted"
 		else:
-			mode = DEFAULTS.get("operating_mode", "assisted")
+			# Fail closed even if an in-process caller mutates the public DEFAULTS mapping.
+			mode = _SAFE_DEFAULT_OPERATING_MODE
 	if mode not in {"assisted", "research"}:
-		mode = "assisted"
+		mode = _SAFE_DEFAULT_OPERATING_MODE
 	cfg["operating_mode"] = mode
 	cfg["low_risk_mode"] = mode != "research"
 	return cfg
