@@ -36,3 +36,13 @@ def test_exe_release_instructions_keep_only_main_product_flow() -> None:
 	assert "Configure AI -> Log in to BOSS -> Enable Research -> Run 5-candidate validation" in script
 	assert "use Autopilot for daily incremental screening" in script
 	assert "BOSS login can open a separate Chrome/Edge window" in script
+
+
+def test_windows_ci_executes_the_frozen_exe_self_test() -> None:
+	workflow = (ROOT / ".github" / "workflows" / "windows-recruiter-boundaries.yml").read_text(encoding="utf-8")
+	desktop = (ROOT / "src" / "boss_agent_cli" / "desktop.py").read_text(encoding="utf-8")
+
+	assert 'Start-Process -FilePath $exe.FullName -ArgumentList "--self-test" -Wait -PassThru' in workflow
+	assert 'parser.add_argument("--self-test"' in desktop
+	assert 'from pypdf import PdfReader' in desktop
+	assert '"app.js": b"RECRUITER AUTOPILOT"' in desktop
