@@ -148,7 +148,8 @@ def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
 				seconds = -1.0
 			if math.isfinite(seconds) and 0 <= seconds <= _MAX_RETRY_DELAY_SECONDS:
 				return seconds
-	return min(0.5 * (2 ** attempt), 2.0)
+	backoff = 0.5 * (2.0 ** attempt)
+	return min(backoff, 2.0)
 
 
 class AIService:
