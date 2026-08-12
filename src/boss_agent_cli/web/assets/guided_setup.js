@@ -132,6 +132,42 @@
 		for (const panel of secondaryPanels) advancedGrid?.append(panel);
 	}
 
+	function simplifySettings() {
+		const aiForm = $("#ai-form");
+		if (aiForm && !$("#advanced-ai-settings")) {
+			const baseUrl = $("#ai-base-url")?.closest("label");
+			const tuning = $("#ai-temperature")?.closest(".two-col");
+			const saveButton = aiForm.querySelector('button[type="submit"]');
+			if (baseUrl && tuning && saveButton) {
+				const details = document.createElement("details");
+				details.id = "advanced-ai-settings";
+				details.className = "advanced-box product-settings-advanced";
+				details.innerHTML = '<summary>高级 AI 设置</summary><div class="compact-form"></div>';
+				aiForm.insertBefore(details, saveButton);
+				const body = details.querySelector(".compact-form");
+				body?.append(baseUrl, tuning);
+				details.open = $("#ai-provider")?.value === "custom";
+			}
+		}
+
+		const loginButton = $("#login-button");
+		const loginForm = loginButton?.closest(".compact-form");
+		if (loginButton && loginForm && !$("#advanced-login-settings")) {
+			const timeout = $("#login-timeout")?.closest("label");
+			const cookie = $("#cookie-source")?.closest("label");
+			const cdp = $("#force-cdp")?.closest("label");
+			if (timeout && cookie && cdp) {
+				const details = document.createElement("details");
+				details.id = "advanced-login-settings";
+				details.className = "advanced-box product-settings-advanced";
+				details.innerHTML = '<summary>登录高级选项</summary><div class="compact-form"></div>';
+				loginForm.insertBefore(details, loginButton);
+				const body = details.querySelector(".compact-form");
+				body?.append(timeout, cookie, cdp);
+			}
+		}
+	}
+
 	function openSetupTarget(action) {
 		if (action === "ai") {
 			setView("settings");
@@ -232,6 +268,7 @@
 	function renderGuide() {
 		simplifyNavigation();
 		simplifyScreeningChoices();
+		simplifySettings();
 		if (!state.bootstrap) return;
 		const onboarding = $("#onboarding");
 		if (!onboarding) return;
@@ -271,6 +308,12 @@
 			</div>
 		`;
 	}
+
+	document.addEventListener("change", event => {
+		if (!event.target?.matches?.("#ai-provider")) return;
+		const advanced = $("#advanced-ai-settings");
+		if (advanced && event.target.value === "custom") advanced.open = true;
+	});
 
 	document.addEventListener("click", event => {
 		const advancedToggle = event.target.closest("#product-advanced-toggle");
