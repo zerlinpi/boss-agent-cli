@@ -3,9 +3,13 @@ import json
 from boss_agent_cli.config import DEFAULTS, load_config
 
 
-def test_malformed_global_config_falls_back_to_safe_defaults(tmp_path) -> None:
+def test_malformed_global_config_falls_back_to_safe_defaults(tmp_path, monkeypatch) -> None:
 	path = tmp_path / "config.json"
 	path.write_text("{not-json", encoding="utf-8")
+	# DEFAULTS is a public mapping and legacy callers may mutate it in-process.
+	# A malformed file must still fail closed instead of inheriting a mutated research mode.
+	monkeypatch.setitem(DEFAULTS, "operating_mode", "research")
+	monkeypatch.setitem(DEFAULTS, "low_risk_mode", False)
 
 	config = load_config(path)
 	assert config["operating_mode"] == "assisted"
