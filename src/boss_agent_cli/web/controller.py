@@ -163,7 +163,8 @@ class RecruiterWebController:
 
 	@staticmethod
 	def _job_summary(job: dict[str, Any]) -> dict[str, Any]:
-		metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+		raw_metadata = job.get("metadata")
+		metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
 		return {
 			"job_key": job.get("job_key", ""),
 			"title": metadata.get("title") or job.get("job_key", ""),
@@ -605,20 +606,22 @@ class RecruiterWebController:
 					continue
 				try:
 					resume = normalize_resume(parse_resume(result))
-					source = {
+					candidate_source = {
 						"type": "zhipin", "geek_id": geek_id,
 						"security_id": security_id, "job_id": candidate_job_id,
 						"friend_id": ref.get("friend_id"),
 					}
 					if not force:
-						existing = self.store.find_unchanged(job_key=job_key, resume=resume, source=source, rubric=rubric)
+						existing = self.store.find_unchanged(
+							job_key=job_key, resume=resume, source=candidate_source, rubric=rubric,
+						)
 						if existing is not None:
 							skipped.append(str(existing.get("id", geek_id)))
 							continue
-					evaluation = evaluate_resume(service, jd_text, resume, rubric)
+					candidate_evaluation = evaluate_resume(service, jd_text, resume, rubric)
 					record = self.store.save_evaluation(
 						job_key=job_key, jd_text=jd_text, resume=resume,
-						evaluation=evaluation, source=source, rubric=rubric,
+						evaluation=candidate_evaluation, source=candidate_source, rubric=rubric,
 					)
 					processed.append(str(record.get("id", geek_id)))
 				except (RecruiterAIError, AIServiceError, ValueError) as exc:
@@ -630,18 +633,18 @@ class RecruiterWebController:
 			drafts: list[dict[str, Any]] = []
 			draft_failures: list[dict[str, str]] = []
 			for index, record in enumerate(ranked[:draft_top], 1):
-				evaluation = record.get("evaluation")
-				if not isinstance(evaluation, dict):
+				record_evaluation = record.get("evaluation")
+				if not isinstance(record_evaluation, dict):
 					continue
 				conversation = ""
-				source = record.get("source")
-				if include_chat and isinstance(source, dict) and source.get("friend_id") not in (None, ""):
-					chat_result = platform.chat_history(int(source["friend_id"]), count=30, max_msg_id=None)
+				record_source = record.get("source")
+				if include_chat and isinstance(record_source, dict) and record_source.get("friend_id") not in (None, ""):
+					chat_result = platform.chat_history(int(record_source["friend_id"]), count=30, max_msg_id=None)
 					if platform.is_success(chat_result):
 						conversation = conversation_to_text(platform.unwrap_data(chat_result) or {})
 				try:
-					intent = recommended_reply_intent(evaluation)
-					draft = generate_reply_draft(service, jd_text, evaluation, conversation, intent)
+					intent = recommended_reply_intent(record_evaluation)
+					draft = generate_reply_draft(service, jd_text, record_evaluation, conversation, intent)
 					drafts.append(self.store.save_reply(
 						evaluation_id=str(record.get("id", "")), intent=intent,
 						conversation=conversation, draft=draft,
