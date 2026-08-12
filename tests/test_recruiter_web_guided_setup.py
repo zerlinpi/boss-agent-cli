@@ -45,3 +45,23 @@ def test_guided_setup_prioritizes_autopilot_and_collapses_secondary_screening() 
 	assert 'details.id = "advanced-screening-options"' in text
 	assert "主流程优先使用全职位 Autopilot" in text
 	assert "本地文件 / 单岗位" in text
+
+
+def test_guided_setup_keeps_only_core_navigation_visible_by_default() -> None:
+	text = files("boss_agent_cli.web.assets").joinpath("guided_setup.js").read_text(encoding="utf-8")
+
+	assert '["dashboard", "screening", "pipeline", "replies", "settings"]' in text
+	assert '["jobs", "activity"]' in text
+	assert 'toggle.id = "product-advanced-toggle"' in text
+	assert "高级功能" in text
+	assert "岗位与规则" in text
+	assert "自动筛选" in text
+
+
+def test_primary_action_tracks_the_next_required_step() -> None:
+	text = files("boss_agent_cli.web.assets").joinpath("guided_setup.js").read_text(encoding="utf-8")
+
+	for label in ("配置 AI", "登录 BOSS", "启用 Research", "运行 5 人验证", "运行 Autopilot"):
+		assert label in text
+	assert "data-product-primary-action" in text
+	assert 'picker.classList.toggle("hidden", !state.jobs.length)' in text
