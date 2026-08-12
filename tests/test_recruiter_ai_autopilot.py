@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from boss_agent_cli.commands.recruiter import ai_autopilot
@@ -78,6 +79,28 @@ class DuplicatePagePlatform(FakePlatform):
 		}
 
 
+class FakeService:
+	def __init__(self) -> None:
+		self.calls = 0
+
+	def chat(self, messages, *, temperature=None):
+		self.calls += 1
+		assert messages
+		assert temperature == 0.1
+		return json.dumps({
+			"title": "Backend Engineer",
+			"hard_requirements": [{"requirement": "Python 后端开发", "required": True}],
+			"dimensions": [
+				{"name": "required_skills", "max_score": 60, "description": "Python 后端技能证据"},
+				{"name": "relevant_experience", "max_score": 40, "description": "相关项目和职责证据"},
+			],
+			"thresholds": {"strong_interview": 85, "interview": 70, "manual_review": 55},
+			"max_questions": 4,
+			"persona_summary": "需要 Python 后端服务开发和优化经验",
+			"suggested_questions": ["请说明一个后端性能优化案例"],
+		}, ensure_ascii=False)
+
+
 def test_extract_platform_jobs_handles_nested_payload_and_deduplicates():
 	payload = {
 		"groups": [
@@ -131,6 +154,7 @@ def test_corrupt_autopilot_state_is_rebuilt_without_touching_evaluations(tmp_pat
 
 def test_run_autopilot_auto_configures_job_and_skips_recent_candidate(monkeypatch, tmp_path: Path):
 	platform = FakePlatform()
+	service = FakeService()
 	store = RecruiterAIStore(tmp_path)
 
 	monkeypatch.setattr(
@@ -164,7 +188,7 @@ def test_run_autopilot_auto_configures_job_and_skips_recent_candidate(monkeypatc
 	first = ai_autopilot.run_autopilot(
 		data_dir=tmp_path,
 		platform=platform,
-		service=object(),
+		service=service,
 		store=store,
 		max_pages=10,
 		max_candidates_per_job=100,
@@ -179,6 +203,7 @@ def test_run_autopilot_auto_configures_job_and_skips_recent_candidate(monkeypatc
 	assert first["totals"]["jobs_processed"] == 1
 	assert first["totals"]["evaluated"] == 1
 	assert platform.view_calls == 1
+	assert service.calls == 1
 	jobs = store.list_jobs()
 	assert len(jobs) == 1
 	assert jobs[0]["metadata"]["boss_job_id"] == "enc-job-1"
@@ -186,7 +211,7 @@ def test_run_autopilot_auto_configures_job_and_skips_recent_candidate(monkeypatc
 	second = ai_autopilot.run_autopilot(
 		data_dir=tmp_path,
 		platform=platform,
-		service=object(),
+		service=service,
 		store=store,
 		max_pages=10,
 		max_candidates_per_job=100,
@@ -201,5 +226,6 @@ def test_run_autopilot_auto_configures_job_and_skips_recent_candidate(monkeypatc
 	assert second["totals"]["evaluated"] == 0
 	assert second["totals"]["freshness_skipped"] == 1
 	assert platform.view_calls == 1
+	assert service.calls == 1
 	assert second["messages_sent"] == 0
 	assert second["final_employment_decisions_automated"] is False
