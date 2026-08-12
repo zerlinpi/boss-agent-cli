@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -318,7 +319,7 @@ class TaskManager:
 			items = sorted(self._tasks.values(), key=lambda item: item["created_at"], reverse=True)
 			return deepcopy(items[: max(1, min(limit, self._max_tasks))])
 
-	def recent(self, *, limit: int = 50) -> list[dict[str, Any]]:
+	def recent(self, *, limit: int = 50) -> builtins.list[dict[str, Any]]:
 		"""Compatibility alias for callers that request recent task history."""
 		return self.list(limit=limit)
 
