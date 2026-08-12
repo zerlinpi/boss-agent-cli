@@ -1,5 +1,6 @@
 (() => {
 	const FIRST_RUN_SESSION_KEY = "boss-autopilot-first-run-defaults";
+	const ADVANCED_NAV_SESSION_KEY = "boss-recruit-advanced-nav";
 
 	function setupState() {
 		const data = state.bootstrap || {};
@@ -45,6 +46,66 @@
 			toast("已填入首次验证参数：1 页 / 5 人 / 2 草稿。确认后点击“运行全职位 Autopilot”");
 		}
 		return changed;
+	}
+
+	function simplifyNavigation() {
+		const nav = $(".nav-list");
+		if (!nav) return;
+		const primary = ["dashboard", "screening", "pipeline", "replies", "settings"];
+		const advanced = ["jobs", "activity"];
+		const labels = {
+			dashboard: "概览",
+			screening: "自动筛选",
+			pipeline: "候选人",
+			replies: "回复草稿",
+			settings: "设置",
+			jobs: "岗位与规则",
+			activity: "任务与审计",
+		};
+
+		for (const [index, view] of primary.entries()) {
+			const item = nav.querySelector(`[data-view="${view}"]`);
+			if (!item) continue;
+			item.classList.remove("product-advanced-nav");
+			const text = item.querySelectorAll("span")[1];
+			if (text) text.textContent = labels[view];
+			const key = item.querySelector("kbd");
+			if (key) key.textContent = String(index + 1);
+			nav.append(item);
+		}
+
+		let toggle = $("#product-advanced-toggle");
+		if (!toggle) {
+			toggle = document.createElement("button");
+			toggle.id = "product-advanced-toggle";
+			toggle.type = "button";
+			toggle.className = "nav-item product-advanced-toggle";
+			toggle.innerHTML = '<span class="nav-icon">⋯</span><span>高级功能</span><kbd>+</kbd>';
+			nav.append(toggle);
+		}
+
+		const expanded = sessionStorage.getItem(ADVANCED_NAV_SESSION_KEY) === "1";
+		toggle.classList.toggle("active", expanded);
+		for (const view of advanced) {
+			const item = nav.querySelector(`[data-view="${view}"]`);
+			if (!item) continue;
+			item.classList.add("product-advanced-nav");
+			item.classList.toggle("hidden", !expanded);
+			const text = item.querySelectorAll("span")[1];
+			if (text) text.textContent = labels[view];
+			const key = item.querySelector("kbd");
+			if (key) key.textContent = "";
+			nav.append(item);
+		}
+	}
+
+	function toggleAdvancedNavigation() {
+		const toggle = $("#product-advanced-toggle");
+		if (!toggle) return;
+		const open = sessionStorage.getItem(ADVANCED_NAV_SESSION_KEY) !== "1";
+		sessionStorage.setItem(ADVANCED_NAV_SESSION_KEY, open ? "1" : "0");
+		toggle.classList.toggle("active", open);
+		$$('.product-advanced-nav').forEach(item => item.classList.toggle("hidden", !open));
 	}
 
 	function simplifyScreeningChoices() {
@@ -98,9 +159,12 @@
 			}, 80);
 			return;
 		}
-		if (action === "candidates") {
-			setView("pipeline");
+		if (action === "screening") {
+			setView("screening");
+			setTimeout(() => $("#autopilot-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+			return;
 		}
+		if (action === "candidates") setView("pipeline");
 	}
 
 	function renderAuthQuality() {
@@ -115,6 +179,30 @@
 		if (description) description.textContent = `登录态不完整（${auth.state || "partial"}）。${recovery}`;
 		const badge = $("#auth-badge");
 		if (badge) setBadge(badge, "需刷新", "manual_review");
+	}
+
+	function renderPrimaryAction(snapshot) {
+		const button = $('[data-action="open-screening"]');
+		if (!button) return;
+		const picker = $(".job-picker");
+		if (picker) picker.classList.toggle("hidden", !state.jobs.length);
+		let action = "screening";
+		let label = "运行 Autopilot";
+		if (!snapshot.aiReady) {
+			action = "ai";
+			label = "配置 AI";
+		} else if (!snapshot.authReady) {
+			action = "auth";
+			label = "登录 BOSS";
+		} else if (!snapshot.modeReady) {
+			action = "mode";
+			label = "启用 Research";
+		} else if (!snapshot.hasCandidates) {
+			action = "first-run";
+			label = "运行 5 人验证";
+		}
+		button.dataset.productPrimaryAction = action;
+		button.textContent = label;
 	}
 
 	function renderAutopilotReadiness(snapshot) {
@@ -142,12 +230,14 @@
 	}
 
 	function renderGuide() {
+		simplifyNavigation();
 		simplifyScreeningChoices();
 		if (!state.bootstrap) return;
 		const onboarding = $("#onboarding");
 		if (!onboarding) return;
 		const snapshot = setupState();
 		renderAuthQuality();
+		renderPrimaryAction(snapshot);
 		renderAutopilotReadiness(snapshot);
 		if (snapshot.hasCandidates) {
 			onboarding.classList.add("hidden");
@@ -183,6 +273,20 @@
 	}
 
 	document.addEventListener("click", event => {
+		const advancedToggle = event.target.closest("#product-advanced-toggle");
+		if (advancedToggle) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			toggleAdvancedNavigation();
+			return;
+		}
+		const primary = event.target.closest('[data-product-primary-action]');
+		if (primary) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			openSetupTarget(primary.dataset.productPrimaryAction || "screening");
+			return;
+		}
 		const button = event.target.closest("[data-guide-action]");
 		if (!button) return;
 		event.preventDefault();
