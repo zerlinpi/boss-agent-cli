@@ -11,6 +11,7 @@ import argparse
 import ctypes
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Thread
 
 from boss_agent_cli.web import RecruiterWebController, build_server
@@ -27,6 +28,43 @@ def _show_fatal_error(message: str) -> None:
 	print(message, file=sys.stderr)
 
 
+def _require_desktop_dependencies() -> object:
+	try:
+		import webview
+		from pypdf import PdfReader
+	except ImportError as exc:
+		raise RuntimeError(
+			"桌面运行依赖缺失。请使用 build-recruiter-exe.bat 构建桌面版，"
+			"或安装 pywebview/pypdf 后再运行。"
+		) from exc
+	if not callable(getattr(webview, "create_window", None)) or not callable(PdfReader):
+		raise RuntimeError("桌面运行依赖加载不完整")
+	return webview
+
+
+def run_self_test() -> None:
+	"""Validate imports, packaged Web assets, and loopback server construction."""
+	_require_desktop_dependencies()
+	with TemporaryDirectory(prefix="boss-recruit-ai-self-test-") as temporary:
+		controller = RecruiterWebController(Path(temporary), platform="zhipin")
+		server, application = build_server(controller, host="127.0.0.1", port=0)
+		try:
+			if server.server_port <= 0:
+				raise RuntimeError("桌面自检失败：本地服务未分配端口")
+			checks = {
+				"index.html": b"BOSS Recruit AI",
+				"app.js": b"Recruiter Autopilot",
+				"styles.css": b"--primary",
+			}
+			for name, marker in checks.items():
+				content, _content_type = application.asset(name)
+				if marker not in content:
+					raise RuntimeError(f"桌面自检失败：{name} 资源不完整")
+		finally:
+			application.tasks.close()
+			server.server_close()
+
+
 def run_desktop(
 	*,
 	data_dir: Path,
@@ -36,14 +74,7 @@ def run_desktop(
 	height: int = 900,
 ) -> None:
 	"""Run the recruiter workspace in a native desktop window."""
-	try:
-		import webview
-	except ImportError as exc:
-		raise RuntimeError(
-			"桌面运行依赖缺失。请使用 build-recruiter-exe.bat 构建桌面版，"
-			"或安装 pywebview 后再运行。"
-		) from exc
-
+	webview = _require_desktop_dependencies()
 	controller = RecruiterWebController(data_dir.expanduser(), platform=platform, cdp_url=cdp_url)
 	server, application = build_server(controller, host="127.0.0.1", port=0)
 	url = f"http://127.0.0.1:{server.server_port}/"
@@ -79,7 +110,15 @@ def main(argv: list[str] | None = None) -> None:
 	parser.add_argument("--cdp-url", default=None)
 	parser.add_argument("--width", type=int, default=1440)
 	parser.add_argument("--height", type=int, default=900)
+	parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
 	args = parser.parse_args(argv)
+	if args.self_test:
+		try:
+			run_self_test()
+		except Exception as exc:
+			print(f"Boss Recruit AI self-test failed: {exc}", file=sys.stderr)
+			raise SystemExit(1) from exc
+		return
 	try:
 		run_desktop(
 			data_dir=Path(args.data_dir),
