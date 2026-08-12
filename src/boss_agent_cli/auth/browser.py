@@ -327,7 +327,7 @@ def _extract_stoken(page: Any) -> str:
 				const match = document.cookie.match(/__zp_stoken__=([^;]+)/);
 				return match ? match[1] : '';
 			}
-		"""))
+		""")
 		if not stoken:
 			stoken = page.evaluate("() => window.__zp_stoken__ || ''")
 		return cast("str", stoken)
