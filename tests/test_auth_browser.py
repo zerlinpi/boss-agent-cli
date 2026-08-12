@@ -6,11 +6,11 @@ from boss_agent_cli.auth.browser import (
 	HOME_URL,
 	LOGIN_PAGE_URL,
 	_NAV_TIMEOUT_MS,
-	_NETWORKIDLE_GRACE_MS,
+	_RUNTIME_SETTLE_MS,
 	_find_zhilian_recruiter_page,
 	_is_zhilian_url,
-	login_via_cdp,
 	login_via_browser,
+	login_via_cdp,
 	refresh_stoken,
 )
 
@@ -126,9 +126,8 @@ def test_zhilian_login_via_cdp_reuses_recruiter_page(mock_sleep, mock_probe_cdp)
 
 @patch("boss_agent_cli.auth.browser._extract_stoken", return_value="fresh-stoken")
 @patch("boss_agent_cli.auth.browser.time.sleep", return_value=None)
-def test_login_via_browser_tolerates_networkidle_timeout(mock_sleep, mock_extract_stoken):
+def test_login_via_browser_uses_dom_and_fixed_runtime_settle(mock_sleep, mock_extract_stoken):
 	mock_page = MagicMock()
-	mock_page.wait_for_load_state.side_effect = Exception("Timeout 30000ms exceeded")
 	mock_page.evaluate.return_value = "UA"
 
 	mock_context = MagicMock()
@@ -149,15 +148,15 @@ def test_login_via_browser_tolerates_networkidle_timeout(mock_sleep, mock_extrac
 	mock_browser.new_context.assert_called_once()
 	mock_page.goto.assert_any_call(LOGIN_PAGE_URL, wait_until="domcontentloaded")
 	mock_page.goto.assert_any_call(HOME_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-	mock_page.wait_for_load_state.assert_called_once_with("networkidle", timeout=_NETWORKIDLE_GRACE_MS)
+	mock_page.wait_for_timeout.assert_called_once_with(_RUNTIME_SETTLE_MS)
+	mock_page.wait_for_load_state.assert_not_called()
 	mock_extract_stoken.assert_called_once_with(mock_page)
 	mock_browser.close.assert_called_once()
 
 
 @patch("boss_agent_cli.auth.browser._extract_stoken", return_value="fresh-stoken")
-def test_refresh_stoken_tolerates_networkidle_timeout(mock_extract_stoken):
+def test_refresh_stoken_uses_dom_and_fixed_runtime_settle(mock_extract_stoken):
 	mock_page = MagicMock()
-	mock_page.wait_for_load_state.side_effect = Exception("Timeout 30000ms exceeded")
 
 	mock_context = MagicMock()
 	mock_context.new_page.return_value = mock_page
@@ -172,6 +171,7 @@ def test_refresh_stoken_tolerates_networkidle_timeout(mock_extract_stoken):
 	mock_browser.new_context.assert_called_once_with(user_agent="UA")
 	mock_context.add_cookies.assert_called_once()
 	mock_page.goto.assert_called_once_with(HOME_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-	mock_page.wait_for_load_state.assert_called_once_with("networkidle", timeout=_NETWORKIDLE_GRACE_MS)
+	mock_page.wait_for_timeout.assert_called_once_with(_RUNTIME_SETTLE_MS)
+	mock_page.wait_for_load_state.assert_not_called()
 	mock_extract_stoken.assert_called_once_with(mock_page)
 	mock_browser.close.assert_called_once()
