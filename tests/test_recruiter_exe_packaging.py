@@ -24,10 +24,10 @@ def test_exe_builder_uses_windowed_onedir_and_desktop_entrypoint() -> None:
 	):
 		assert required in script
 
-	assert "port and stores local data" not in script  # keep user instructions concise, not implementation-heavy
 	assert "Login credentials and API keys are not included" in script
 	assert ".venv-build" in script
 	assert "64-bit Python 3.10-3.14" in script
+	assert "auth sessions, API keys or local recruiter data" in script
 
 
 def test_exe_release_instructions_keep_only_main_product_flow() -> None:
