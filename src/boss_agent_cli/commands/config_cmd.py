@@ -182,19 +182,19 @@ def _parse_value(raw: str, default: Any) -> Any:
 			return None
 		return raw
 	if isinstance(default, bool):
-		value = raw.strip().lower()
-		if value in ("true", "1", "yes"):
+		boolean_value = raw.strip().lower()
+		if boolean_value in ("true", "1", "yes"):
 			return True
-		if value in ("false", "0", "no"):
+		if boolean_value in ("false", "0", "no"):
 			return False
 		raise ValueError("布尔值必须是 true/false、1/0 或 yes/no")
 	if isinstance(default, int):
 		return int(raw)
 	if isinstance(default, float):
-		value = float(raw)
-		if not math.isfinite(value):
+		numeric_value = float(raw)
+		if not math.isfinite(numeric_value):
 			raise ValueError("数字必须是有限值")
-		return value
+		return numeric_value
 	if isinstance(default, list):
 		parts = [part.strip() for part in raw.split(",")]
 		if all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in default):
