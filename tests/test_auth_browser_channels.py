@@ -13,7 +13,7 @@ class _Chromium:
 	def launch(self, **kwargs):
 		self.calls.append(kwargs)
 		channel = kwargs.get("channel")
-		if channel == self.available:
+		if self.available in {"chrome", "msedge"} and channel == self.available:
 			return channel
 		if channel is None and self.available == "bundled":
 			return "bundled"
