@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
+from typing import Any
 
 from boss_agent_cli.web import RecruiterWebController, build_server
 
@@ -21,14 +22,16 @@ def _show_fatal_error(message: str) -> None:
 	"""Show startup failures even when the PyInstaller build has no console."""
 	if sys.platform == "win32":
 		try:
-			ctypes.windll.user32.MessageBoxW(0, message, "Boss Recruit AI", 0x10)
-			return
+			windll: Any = getattr(ctypes, "windll", None)
+			if windll is not None:
+				windll.user32.MessageBoxW(0, message, "Boss Recruit AI", 0x10)
+				return
 		except Exception:
 			pass
 	print(message, file=sys.stderr)
 
 
-def _require_desktop_dependencies() -> object:
+def _require_desktop_dependencies() -> Any:
 	try:
 		import webview
 		from pypdf import PdfReader
@@ -53,7 +56,7 @@ def run_self_test() -> None:
 				raise RuntimeError("桌面自检失败：本地服务未分配端口")
 			checks = {
 				"index.html": b"BOSS Recruit AI",
-				"app.js": b"Recruiter Autopilot",
+				"app.js": b"RECRUITER AUTOPILOT",
 				"styles.css": b"--primary",
 			}
 			for name, marker in checks.items():
