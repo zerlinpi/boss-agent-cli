@@ -31,23 +31,29 @@ def _show_fatal_error(message: str) -> None:
 	print(message, file=sys.stderr)
 
 
-def _require_desktop_dependencies() -> Any:
+def _require_webview() -> Any:
 	try:
 		import webview
-		from pypdf import PdfReader
 	except ImportError as exc:
 		raise RuntimeError(
-			"桌面运行依赖缺失。请使用 build-recruiter-exe.bat 构建桌面版，"
-			"或安装 pywebview/pypdf 后再运行。"
+			"桌面窗口依赖缺失。请使用 build-recruiter-exe.bat 构建桌面版，"
+			"或安装 pywebview 后再运行。"
 		) from exc
-	if not callable(getattr(webview, "create_window", None)) or not callable(PdfReader):
-		raise RuntimeError("桌面运行依赖加载不完整")
+	if not callable(getattr(webview, "create_window", None)):
+		raise RuntimeError("桌面窗口依赖加载不完整")
 	return webview
 
 
 def run_self_test() -> None:
-	"""Validate imports, packaged Web assets, and loopback server construction."""
-	_require_desktop_dependencies()
+	"""Validate frozen dependencies, packaged Web assets, and server construction."""
+	_require_webview()
+	try:
+		from pypdf import PdfReader
+	except ImportError as exc:
+		raise RuntimeError("桌面自检失败：发布包缺少 pypdf") from exc
+	if not callable(PdfReader):
+		raise RuntimeError("桌面自检失败：pypdf 加载不完整")
+
 	with TemporaryDirectory(prefix="boss-recruit-ai-self-test-") as temporary:
 		controller = RecruiterWebController(Path(temporary), platform="zhipin")
 		server, application = build_server(controller, host="127.0.0.1", port=0)
@@ -77,7 +83,7 @@ def run_desktop(
 	height: int = 900,
 ) -> None:
 	"""Run the recruiter workspace in a native desktop window."""
-	webview = _require_desktop_dependencies()
+	webview = _require_webview()
 	controller = RecruiterWebController(data_dir.expanduser(), platform=platform, cdp_url=cdp_url)
 	server, application = build_server(controller, host="127.0.0.1", port=0)
 	url = f"http://127.0.0.1:{server.server_port}/"
