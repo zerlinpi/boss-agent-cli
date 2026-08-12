@@ -318,6 +318,10 @@ class TaskManager:
 			items = sorted(self._tasks.values(), key=lambda item: item["created_at"], reverse=True)
 			return deepcopy(items[: max(1, min(limit, self._max_tasks))])
 
+	def recent(self, *, limit: int = 50) -> list[dict[str, Any]]:
+		"""Compatibility alias for callers that request recent task history."""
+		return self.list(limit=limit)
+
 	def get(self, task_id: str) -> dict[str, Any]:
 		with self._lock:
 			if task_id not in self._tasks:
