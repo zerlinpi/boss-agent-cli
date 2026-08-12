@@ -21,7 +21,10 @@ function Test-Python([string]$Executable) {
 
 function Find-BasePython {
 	if (Get-Command py -ErrorAction SilentlyContinue) {
-		foreach ($version in @('-3.14','-3.13','-3.12','-3.11','-3.10')) {
+		# Prefer the project's most conservative desktop-build interpreter. Newer
+		# interpreters remain fallbacks, but PyInstaller/WebView compatibility is
+		# deliberately optimized around Python 3.12 for reproducible Windows builds.
+		foreach ($version in @('-3.12','-3.13','-3.11','-3.10','-3.14')) {
 			try {
 				$resolved = (& py $version -c "import sys; print(sys.executable)" 2>$null | Select-Object -First 1)
 				if ($LASTEXITCODE -eq 0 -and (Test-Python $resolved)) { return $resolved }
