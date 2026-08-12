@@ -12,7 +12,6 @@ import ctypes
 import sys
 from pathlib import Path
 from threading import Thread
-from typing import Any
 
 from boss_agent_cli.web import RecruiterWebController, build_server
 
