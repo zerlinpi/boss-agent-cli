@@ -15,7 +15,7 @@ def test_web_autopilot_assets_and_empty_status(tmp_path: Path):
 		app_js, _ = app.asset("app.js")
 		styles, _ = app.asset("styles.css")
 		assert b"autopilot-run-button" in app_js
-		assert b"Recruiter Autopilot" in app_js
+		assert b"RECRUITER AUTOPILOT" in app_js
 		assert b"autopilot-panel" in styles
 	finally:
 		app.tasks.close()
