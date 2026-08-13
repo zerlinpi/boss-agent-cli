@@ -20,7 +20,7 @@ on:
       - "tests/test_recruiter_desktop.py"
       - "tests/test_recruiter_exe_packaging.py"
       - "tests/test_recruiter_request_boundary.py"
-      - "tests/test_recruiter_web_guided_setup.py"
+      - "tests/test_recruiter_web_*.py"
       - ".github/workflows/windows-recruiter-boundaries.yml"
   pull_request:
     branches: [master]
@@ -41,7 +41,7 @@ on:
       - "tests/test_recruiter_desktop.py"
       - "tests/test_recruiter_exe_packaging.py"
       - "tests/test_recruiter_request_boundary.py"
-      - "tests/test_recruiter_web_guided_setup.py"
+      - "tests/test_recruiter_web_*.py"
       - ".github/workflows/windows-recruiter-boundaries.yml"
   workflow_dispatch:
 
@@ -66,7 +66,12 @@ jobs:
         run: uv sync --all-extras
 
       - name: Check recruiter guide JavaScript
-        run: node --check src/boss_agent_cli/web/assets/guided_setup.js
+        shell: pwsh
+        run: |
+          Get-ChildItem "src/boss_agent_cli/web/assets/guided_*.js" | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
+          }
 
       - name: Run Windows recruiter boundary regressions
         run: >-
@@ -84,6 +89,9 @@ jobs:
           tests/test_recruiter_host_safety.py
           tests/test_recruiter_request_boundary.py
           tests/test_recruiter_web_guided_setup.py
+          tests/test_recruiter_web_guided_navigation.py
+          tests/test_recruiter_web_feedback.py
+          tests/test_recruiter_web_autopilot.py
 
       - name: Import recruiter Web surface
         run: >-
