@@ -24,6 +24,7 @@ def install_ui_reliability_assets(server_module: Any) -> None:
 			content += b"\n" + assets.joinpath("ui_cache_consistency.js").read_bytes()
 			content += b"\n" + assets.joinpath("ui_request_consistency.js").read_bytes()
 			content += b"\n" + assets.joinpath("guided_setup.js").read_bytes()
+			content += b"\n" + assets.joinpath("guided_navigation.js").read_bytes()
 		return content, content_type
 
 	setattr(application_cls, "asset", asset)
