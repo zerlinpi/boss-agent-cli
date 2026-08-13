@@ -79,3 +79,29 @@ def test_primary_action_tracks_the_next_required_step() -> None:
 		assert label in text
 	assert "data-product-primary-action" in text
 	assert 'picker.classList.toggle("hidden", !state.jobs.length)' in text
+
+
+def test_guided_setup_exposes_navigation_filter_and_task_state_accessibly() -> None:
+	text = files("boss_agent_cli.web.assets").joinpath("guided_setup.js").read_text(encoding="utf-8")
+
+	assert 'button.setAttribute("aria-controls", "sidebar")' in text
+	assert 'button.setAttribute("aria-expanded", String(expanded))' in text
+	assert 'new MutationObserver(syncMobileNavigation)' in text
+	assert '"#candidate-search": "搜索候选人"' in text
+	assert '"#candidate-status-filter": "按候选人阶段筛选"' in text
+	assert '"#candidate-recommendation-filter": "按 AI 推荐结果筛选"' in text
+	assert 'progress.setAttribute("role", "progressbar")' in text
+	assert 'progress.setAttribute("aria-valuenow", String(value))' in text
+	assert 'toastStack.setAttribute("aria-live", "polite")' in text
+	assert 'aria-current="step"' in text
+
+
+def test_advanced_disclosures_keep_expanded_state_in_sync() -> None:
+	text = files("boss_agent_cli.web.assets").joinpath("guided_setup.js").read_text(encoding="utf-8")
+
+	assert 'toggle.setAttribute("aria-controls", controlledIds.join(" "))' in text
+	assert 'toggle.setAttribute("aria-expanded", String(open))' in text
+	assert 'summary.setAttribute("aria-expanded", String(details.open))' in text
+	assert 'enhanceDetailsDisclosure($("#advanced-ai-settings")' in text
+	assert 'enhanceDetailsDisclosure($("#advanced-login-settings")' in text
+	assert 'enhanceDetailsDisclosure($("#advanced-screening-options")' in text

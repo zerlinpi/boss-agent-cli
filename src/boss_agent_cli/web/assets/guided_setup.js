@@ -21,6 +21,89 @@
 		}, 60);
 	}
 
+	function syncMobileNavigation() {
+		const button = $("#mobile-menu");
+		const sidebar = $("#sidebar");
+		if (!button || !sidebar) return;
+		const expanded = sidebar.classList.contains("open");
+		button.setAttribute("aria-controls", "sidebar");
+		button.setAttribute("aria-expanded", String(expanded));
+		button.setAttribute("aria-label", expanded ? "关闭菜单" : "打开菜单");
+	}
+
+	function syncTaskProgressAccessibility() {
+		const progress = $("#task-progress");
+		const percent = $("#task-percent");
+		if (!progress || !percent) return;
+		const raw = Number.parseInt(percent.textContent || "0", 10);
+		const value = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+		progress.setAttribute("role", "progressbar");
+		progress.setAttribute("aria-valuemin", "0");
+		progress.setAttribute("aria-valuemax", "100");
+		progress.setAttribute("aria-valuenow", String(value));
+		progress.setAttribute("aria-valuetext", `${value}%`);
+	}
+
+	function enhanceDetailsDisclosure(details, contentId) {
+		if (!details) return;
+		const summary = details.querySelector("summary");
+		const body = summary?.nextElementSibling;
+		if (!summary || !body) return;
+		body.id ||= contentId;
+		summary.setAttribute("aria-controls", body.id);
+		const sync = () => summary.setAttribute("aria-expanded", String(details.open));
+		sync();
+		if (details.dataset.accessibilityBound === "1") return;
+		details.dataset.accessibilityBound = "1";
+		details.addEventListener("toggle", sync);
+	}
+
+	function enhanceAccessibility() {
+		const sidebar = $("#sidebar");
+		if (sidebar && sidebar.dataset.accessibilityObserved !== "1") {
+			sidebar.dataset.accessibilityObserved = "1";
+			new MutationObserver(syncMobileNavigation).observe(sidebar, { attributes: true, attributeFilter: ["class"] });
+		}
+		syncMobileNavigation();
+
+		const labels = {
+			"#candidate-search": "搜索候选人",
+			"#candidate-status-filter": "按候选人阶段筛选",
+			"#candidate-recommendation-filter": "按 AI 推荐结果筛选",
+			"#candidate-sort": "候选人排序",
+			"#bulk-status": "批量更新目标阶段",
+			"#bulk-note": "批量备注",
+		};
+		for (const [selector, label] of Object.entries(labels)) {
+			const control = $(selector);
+			if (control && !control.getAttribute("aria-label")) control.setAttribute("aria-label", label);
+		}
+
+		const banner = $("#task-banner");
+		if (banner) {
+			banner.setAttribute("role", "status");
+			banner.setAttribute("aria-live", "polite");
+			banner.setAttribute("aria-atomic", "false");
+		}
+		const percent = $("#task-percent");
+		if (percent && percent.dataset.accessibilityObserved !== "1") {
+			percent.dataset.accessibilityObserved = "1";
+			new MutationObserver(syncTaskProgressAccessibility).observe(percent, { childList: true, characterData: true, subtree: true });
+		}
+		syncTaskProgressAccessibility();
+
+		const toastStack = $("#toast-stack");
+		if (toastStack) {
+			toastStack.setAttribute("role", "status");
+			toastStack.setAttribute("aria-live", "polite");
+			toastStack.setAttribute("aria-relevant", "additions text");
+		}
+
+		enhanceDetailsDisclosure($("#advanced-ai-settings"), "advanced-ai-settings-body");
+		enhanceDetailsDisclosure($("#advanced-login-settings"), "advanced-login-settings-body");
+		enhanceDetailsDisclosure($("#advanced-screening-options"), "advanced-screening-options-body");
+	}
+
 	function applySafeFirstRunDefaults({ announce = false } = {}) {
 		const values = {
 			"#autopilot-max-pages": "1",
@@ -85,10 +168,13 @@
 		}
 
 		const expanded = sessionStorage.getItem(ADVANCED_NAV_SESSION_KEY) === "1";
+		const controlledIds = [];
 		toggle.classList.toggle("active", expanded);
 		for (const view of advanced) {
 			const item = nav.querySelector(`[data-view="${view}"]`);
 			if (!item) continue;
+			item.id ||= `product-advanced-${view}`;
+			controlledIds.push(item.id);
 			item.classList.add("product-advanced-nav");
 			item.classList.toggle("hidden", !expanded);
 			const text = item.querySelectorAll("span")[1];
@@ -97,6 +183,11 @@
 			if (key) key.textContent = "";
 			nav.append(item);
 		}
+		toggle.setAttribute("aria-controls", controlledIds.join(" "));
+		toggle.setAttribute("aria-expanded", String(expanded));
+		toggle.setAttribute("aria-label", expanded ? "收起高级功能" : "展开高级功能");
+		const key = toggle.querySelector("kbd");
+		if (key) key.textContent = expanded ? "−" : "+";
 	}
 
 	function toggleAdvancedNavigation() {
@@ -105,6 +196,10 @@
 		const open = sessionStorage.getItem(ADVANCED_NAV_SESSION_KEY) !== "1";
 		sessionStorage.setItem(ADVANCED_NAV_SESSION_KEY, open ? "1" : "0");
 		toggle.classList.toggle("active", open);
+		toggle.setAttribute("aria-expanded", String(open));
+		toggle.setAttribute("aria-label", open ? "收起高级功能" : "展开高级功能");
+		const key = toggle.querySelector("kbd");
+		if (key) key.textContent = open ? "−" : "+";
 		$$('.product-advanced-nav').forEach(item => item.classList.toggle("hidden", !open));
 	}
 
@@ -269,6 +364,7 @@
 		simplifyNavigation();
 		simplifyScreeningChoices();
 		simplifySettings();
+		enhanceAccessibility();
 		if (!state.bootstrap) return;
 		const onboarding = $("#onboarding");
 		if (!onboarding) return;
@@ -303,7 +399,7 @@
 				<p style="margin:6px 0 0;color:rgba(255,255,255,.78);font-size:12px;">先验证 5 位候选人的真实链路，确认结果后再扩大范围。</p>
 			</div>
 			<div class="onboarding-steps">
-				${steps.map((step, index) => `<button type="button" class="${step.done ? "done" : ""}" data-guide-action="${step.action}"><i>${index + 1}</i><span>${step.label}</span></button>`).join("")}
+				${steps.map((step, index) => `<button type="button" class="${step.done ? "done" : ""}" data-guide-action="${step.action}" ${!step.done && step.action === next ? 'aria-current="step"' : ""}><i>${index + 1}</i><span>${step.label}</span></button>`).join("")}
 				<button type="button" class="button primary" data-guide-action="${next}">${nextLabel}</button>
 			</div>
 		`;
@@ -316,6 +412,9 @@
 	});
 
 	document.addEventListener("click", event => {
+		if (event.target.closest("#mobile-menu") || event.target.closest(".nav-item[data-view]")) {
+			setTimeout(syncMobileNavigation, 0);
+		}
 		const advancedToggle = event.target.closest("#product-advanced-toggle");
 		if (advancedToggle) {
 			event.preventDefault();
