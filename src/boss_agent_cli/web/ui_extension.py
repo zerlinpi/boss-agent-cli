@@ -29,6 +29,7 @@ def install_ui_reliability_assets(server_module: Any) -> None:
 			content += b"\n" + assets.joinpath("guided_autopilot_feedback.js").read_bytes()
 		elif name == "styles.css":
 			content += b"\n" + assets.joinpath("guided_feedback.css").read_bytes()
+			content += b"\n" + assets.joinpath("guided_visual.css").read_bytes()
 		return content, content_type
 
 	setattr(application_cls, "asset", asset)
