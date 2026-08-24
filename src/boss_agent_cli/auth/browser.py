@@ -40,6 +40,28 @@ def _get_platform_config(platform: str) -> dict[str, str]:
 	return config
 
 
+def _launch_chromium(playwright: Any, *, headless: bool) -> Any:
+	"""Prefer an installed Chrome/Edge before Patchright's downloaded Chromium.
+
+	Desktop releases intentionally do not bundle a browser runtime. Most Windows
+	machines already have Chrome or Edge, so using their supported Playwright
+	channels keeps the EXE package much smaller while preserving the existing
+	Patchright Chromium fallback for source installs.
+	"""
+	for channel in ("chrome", "msedge"):
+		try:
+			return playwright.chromium.launch(channel=channel, headless=headless)
+		except Exception:
+			continue
+	try:
+		return playwright.chromium.launch(headless=headless)
+	except Exception as exc:
+		raise RuntimeError(
+			"未找到可用的 Chrome/Edge/Chromium。请先安装 Chrome 或 Edge，"
+			"然后重新执行 BOSS 登录。"
+		) from exc
+
+
 def _extract_zhilian_client_id(page: Any) -> str:
 	try:
 		return cast("str", page.evaluate("""
@@ -190,7 +212,7 @@ def login_via_browser(*, timeout: int = 120, platform: str = "zhipin") -> dict[s
 	cookie_domain = config["cookie_domain"]
 	success_cookie = config["success_cookie"]
 	with sync_playwright() as p:
-		browser = p.chromium.launch(headless=False)
+		browser = _launch_chromium(p, headless=False)
 		context = browser.new_context(
 			viewport={"width": 1280, "height": 800},
 			locale="zh-CN",
@@ -284,7 +306,7 @@ def refresh_stoken_via_cdp(cdp_url: str | None = None) -> str:
 def refresh_stoken(cookies: dict[str, Any], user_agent: str) -> str:
 	"""通过 headless patchright 刷新 stoken（兜底方案）。"""
 	with sync_playwright() as p:
-		browser = p.chromium.launch(headless=True)
+		browser = _launch_chromium(p, headless=True)
 		context = browser.new_context(user_agent=user_agent)
 		context.add_cookies([
 			{"name": name, "value": value, "domain": ".zhipin.com", "path": "/"}
@@ -305,7 +327,7 @@ def _extract_stoken(page: Any) -> str:
 				const match = document.cookie.match(/__zp_stoken__=([^;]+)/);
 				return match ? match[1] : '';
 			}
-		"""))
+		""")
 		if not stoken:
 			stoken = page.evaluate("() => window.__zp_stoken__ || ''")
 		return cast("str", stoken)

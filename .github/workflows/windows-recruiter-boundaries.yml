@@ -5,25 +5,43 @@ on:
     branches: [master]
     paths:
       - "src/boss_agent_cli/ai/**"
+      - "src/boss_agent_cli/auth/browser.py"
+      - "src/boss_agent_cli/desktop.py"
       - "src/boss_agent_cli/web/**"
       - "src/boss_agent_cli/commands/ai_config_safety.py"
       - "src/boss_agent_cli/commands/register.py"
+      - "scripts/build-recruiter-exe.ps1"
+      - "build-recruiter-exe.bat"
       - "tests/test_ai_config_*.py"
+      - "tests/test_auth_browser.py"
+      - "tests/test_auth_browser_channels.py"
       - "tests/test_recruiter_ai_config_safety.py"
       - "tests/test_recruiter_analytics_safety.py"
+      - "tests/test_recruiter_desktop.py"
+      - "tests/test_recruiter_exe_packaging.py"
       - "tests/test_recruiter_request_boundary.py"
+      - "tests/test_recruiter_web_*.py"
       - ".github/workflows/windows-recruiter-boundaries.yml"
   pull_request:
     branches: [master]
     paths:
       - "src/boss_agent_cli/ai/**"
+      - "src/boss_agent_cli/auth/browser.py"
+      - "src/boss_agent_cli/desktop.py"
       - "src/boss_agent_cli/web/**"
       - "src/boss_agent_cli/commands/ai_config_safety.py"
       - "src/boss_agent_cli/commands/register.py"
+      - "scripts/build-recruiter-exe.ps1"
+      - "build-recruiter-exe.bat"
       - "tests/test_ai_config_*.py"
+      - "tests/test_auth_browser.py"
+      - "tests/test_auth_browser_channels.py"
       - "tests/test_recruiter_ai_config_safety.py"
       - "tests/test_recruiter_analytics_safety.py"
+      - "tests/test_recruiter_desktop.py"
+      - "tests/test_recruiter_exe_packaging.py"
       - "tests/test_recruiter_request_boundary.py"
+      - "tests/test_recruiter_web_*.py"
       - ".github/workflows/windows-recruiter-boundaries.yml"
   workflow_dispatch:
 
@@ -47,6 +65,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: Check recruiter extension JavaScript
+        shell: pwsh
+        run: |
+          Get-ChildItem "src/boss_agent_cli/web/assets/*.js" |
+            Where-Object { $_.Name -like "guided_*.js" -or $_.Name -like "product_*.js" } |
+            ForEach-Object {
+              node --check $_.FullName
+              if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
+            }
+
       - name: Run Windows recruiter boundary regressions
         run: >-
           uv run pytest -q
@@ -54,10 +82,20 @@ jobs:
           tests/test_ai_config_migration.py
           tests/test_ai_config_validation.py
           tests/test_ai_config_recovery.py
+          tests/test_auth_browser.py
+          tests/test_auth_browser_channels.py
           tests/test_recruiter_ai_config_safety.py
           tests/test_recruiter_analytics_safety.py
+          tests/test_recruiter_desktop.py
+          tests/test_recruiter_exe_packaging.py
           tests/test_recruiter_host_safety.py
           tests/test_recruiter_request_boundary.py
+          tests/test_recruiter_web_guided_setup.py
+          tests/test_recruiter_web_guided_navigation.py
+          tests/test_recruiter_web_feedback.py
+          tests/test_recruiter_web_autopilot.py
+          tests/test_recruiter_web_visual_design.py
+          tests/test_recruiter_web_product_patterns.py
 
       - name: Import recruiter Web surface
         run: >-
@@ -65,3 +103,44 @@ jobs:
           "from pathlib import Path; from boss_agent_cli.web import RecruiterWebController, build_server;
           c=RecruiterWebController(Path('.ci-recruiter-boundary-data')); s,a=build_server(c, port=0);
           print('boundary server port:', s.server_port); a.tasks.close(); s.server_close()"
+
+  windows-desktop-package:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Parse desktop builder
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/build-recruiter-exe.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "Desktop PowerShell builder did not parse"
+          }
+
+      - name: Build desktop EXE package
+        shell: pwsh
+        run: ./scripts/build-recruiter-exe.ps1
+
+      - name: Verify and execute frozen desktop package
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "dist/BossRecruitAI-v*-win64/BossRecruitAI.exe" | Select-Object -First 1
+          $zip = Get-ChildItem "dist/BossRecruitAI-v*-win64.zip" | Select-Object -First 1
+          if (-not $exe) { throw "BossRecruitAI.exe missing" }
+          if (-not $zip) { throw "Desktop ZIP missing" }
+          if ($exe.Length -le 0 -or $zip.Length -le 0) { throw "Desktop artifacts are empty" }
+          Write-Host "EXE: $($exe.FullName) ($($exe.Length) bytes)"
+          Write-Host "ZIP: $($zip.FullName) ($($zip.Length) bytes)"
+          $process = Start-Process -FilePath $exe.FullName -ArgumentList "--self-test" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Frozen desktop self-test failed with exit code $($process.ExitCode)"
+          }
+          Write-Host "Frozen desktop self-test passed."

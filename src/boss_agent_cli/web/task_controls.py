@@ -39,8 +39,10 @@ def install_task_manager_controls(tasks_module: Any) -> None:
 
 	def ensure_state(self: Any) -> None:
 		if not hasattr(self, "_boss_cancel_events"):
-			self._boss_cancel_events: dict[str, Event] = {}
-			self._boss_futures: dict[str, Future[Any]] = {}
+			cancel_events: dict[str, Event] = {}
+			futures: dict[str, Future[Any]] = {}
+			self._boss_cancel_events = cancel_events
+			self._boss_futures = futures
 			self._boss_closed = False
 
 	def cancellation_requested(self: Any, task_id: str) -> bool:

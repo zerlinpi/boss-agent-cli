@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, cast
 
 import click
 
@@ -19,17 +19,20 @@ class RecruiterAutopilotBusy(RuntimeError):
 def _lock_windows(fd: int) -> Callable[[], None]:
 	import msvcrt
 
+	locking = cast(Callable[[int, int, int], None], getattr(msvcrt, "locking"))
+	lock_nonblocking = cast(int, getattr(msvcrt, "LK_NBLCK"))
+	unlock_mode = cast(int, getattr(msvcrt, "LK_UNLCK"))
 	if os.fstat(fd).st_size < 1:
 		os.ftruncate(fd, 1)
 	os.lseek(fd, 0, os.SEEK_SET)
 	try:
-		msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+		locking(fd, lock_nonblocking, 1)
 	except OSError as exc:
 		raise RecruiterAutopilotBusy("已有 Recruiter Autopilot 正在运行，本轮不会重复执行") from exc
 
 	def unlock() -> None:
 		os.lseek(fd, 0, os.SEEK_SET)
-		msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+		locking(fd, unlock_mode, 1)
 
 	return unlock
 

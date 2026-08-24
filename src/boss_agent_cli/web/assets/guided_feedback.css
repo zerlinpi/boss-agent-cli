@@ -1,0 +1,81 @@
+.candidate-workbench-status {
+	margin: -2px 0 12px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 30px;
+	font-size: 12px;
+	color: var(--text-soft, #5e6b78);
+}
+
+.candidate-workbench-status strong {
+	color: var(--text, #1f2937);
+}
+
+.table-card.is-loading,
+.kanban-board.is-loading {
+	opacity: 0.62;
+	pointer-events: none;
+}
+
+.task-recovery-panel {
+	margin: 0 0 16px;
+	padding: 14px 16px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	border: 1px solid rgba(185, 28, 28, 0.22);
+	border-radius: 12px;
+	background: rgba(185, 28, 28, 0.055);
+}
+
+.task-recovery-panel p {
+	margin: 4px 0;
+	font-size: 13px;
+}
+
+.task-recovery-panel small {
+	color: var(--text-soft, #5e6b78);
+}
+
+.task-recovery-actions,
+.autopilot-result-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.autopilot-result-heading {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 18px;
+	padding: 14px 16px;
+	border: 1px solid var(--border, #e5e7eb);
+	border-radius: 12px;
+	background: var(--surface, #fff);
+}
+
+.autopilot-result-heading h4 {
+	margin: 2px 0 4px;
+	font-size: 16px;
+}
+
+.autopilot-result-heading p:not(.eyebrow) {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--text-soft, #5e6b78);
+}
+
+@media (max-width: 760px) {
+	.candidate-workbench-status,
+	.task-recovery-panel,
+	.autopilot-result-heading {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+}

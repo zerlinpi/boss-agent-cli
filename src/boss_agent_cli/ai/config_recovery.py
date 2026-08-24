@@ -75,5 +75,8 @@ def install_ai_config_recovery() -> None:
 			return None
 		return value
 
-	AIConfigStore.load_config = load_config
-	AIConfigStore.get_api_key = get_api_key
+	# Runtime hardening intentionally decorates the existing store class. ``setattr`` keeps
+	# the dynamic installation explicit without asking mypy to treat method assignment as
+	# normal static class definition.
+	setattr(AIConfigStore, "load_config", load_config)
+	setattr(AIConfigStore, "get_api_key", get_api_key)

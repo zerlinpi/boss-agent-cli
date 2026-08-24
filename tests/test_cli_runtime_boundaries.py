@@ -29,7 +29,8 @@ def test_data_dir_creation_failure_uses_structured_cli_error(tmp_path) -> None:
 	file_path.write_text("occupied", encoding="utf-8")
 	result = CliRunner().invoke(cli, ["--data-dir", str(file_path), "--json", "status"])
 
-	assert result.exit_code == 0
+	# CLI envelope contract: errors are structured JSON and exit non-zero.
+	assert result.exit_code == 1
 	payload = json.loads(result.output)
 	assert payload["ok"] is False
 	assert payload["error"]["code"] == "INVALID_PARAM"

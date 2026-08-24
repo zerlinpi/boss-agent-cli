@@ -1,5 +1,6 @@
 (() => {
 	const FIRST_RUN_SESSION_KEY = "boss-autopilot-first-run-defaults";
+	const ADVANCED_NAV_SESSION_KEY = "boss-recruit-advanced-nav";
 
 	function setupState() {
 		const data = state.bootstrap || {};
@@ -18,6 +19,89 @@
 			target.scrollIntoView({ behavior: "smooth", block: "center" });
 			if (typeof target.focus === "function") target.focus({ preventScroll: true });
 		}, 60);
+	}
+
+	function syncMobileNavigation() {
+		const button = $("#mobile-menu");
+		const sidebar = $("#sidebar");
+		if (!button || !sidebar) return;
+		const expanded = sidebar.classList.contains("open");
+		button.setAttribute("aria-controls", "sidebar");
+		button.setAttribute("aria-expanded", String(expanded));
+		button.setAttribute("aria-label", expanded ? "关闭菜单" : "打开菜单");
+	}
+
+	function syncTaskProgressAccessibility() {
+		const progress = $("#task-progress");
+		const percent = $("#task-percent");
+		if (!progress || !percent) return;
+		const raw = Number.parseInt(percent.textContent || "0", 10);
+		const value = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+		progress.setAttribute("role", "progressbar");
+		progress.setAttribute("aria-valuemin", "0");
+		progress.setAttribute("aria-valuemax", "100");
+		progress.setAttribute("aria-valuenow", String(value));
+		progress.setAttribute("aria-valuetext", `${value}%`);
+	}
+
+	function enhanceDetailsDisclosure(details, contentId) {
+		if (!details) return;
+		const summary = details.querySelector("summary");
+		const body = summary?.nextElementSibling;
+		if (!summary || !body) return;
+		body.id ||= contentId;
+		summary.setAttribute("aria-controls", body.id);
+		const sync = () => summary.setAttribute("aria-expanded", String(details.open));
+		sync();
+		if (details.dataset.accessibilityBound === "1") return;
+		details.dataset.accessibilityBound = "1";
+		details.addEventListener("toggle", sync);
+	}
+
+	function enhanceAccessibility() {
+		const sidebar = $("#sidebar");
+		if (sidebar && sidebar.dataset.accessibilityObserved !== "1") {
+			sidebar.dataset.accessibilityObserved = "1";
+			new MutationObserver(syncMobileNavigation).observe(sidebar, { attributes: true, attributeFilter: ["class"] });
+		}
+		syncMobileNavigation();
+
+		const labels = {
+			"#candidate-search": "搜索候选人",
+			"#candidate-status-filter": "按候选人阶段筛选",
+			"#candidate-recommendation-filter": "按 AI 推荐结果筛选",
+			"#candidate-sort": "候选人排序",
+			"#bulk-status": "批量更新目标阶段",
+			"#bulk-note": "批量备注",
+		};
+		for (const [selector, label] of Object.entries(labels)) {
+			const control = $(selector);
+			if (control && !control.getAttribute("aria-label")) control.setAttribute("aria-label", label);
+		}
+
+		const banner = $("#task-banner");
+		if (banner) {
+			banner.setAttribute("role", "status");
+			banner.setAttribute("aria-live", "polite");
+			banner.setAttribute("aria-atomic", "false");
+		}
+		const percent = $("#task-percent");
+		if (percent && percent.dataset.accessibilityObserved !== "1") {
+			percent.dataset.accessibilityObserved = "1";
+			new MutationObserver(syncTaskProgressAccessibility).observe(percent, { childList: true, characterData: true, subtree: true });
+		}
+		syncTaskProgressAccessibility();
+
+		const toastStack = $("#toast-stack");
+		if (toastStack) {
+			toastStack.setAttribute("role", "status");
+			toastStack.setAttribute("aria-live", "polite");
+			toastStack.setAttribute("aria-relevant", "additions text");
+		}
+
+		enhanceDetailsDisclosure($("#advanced-ai-settings"), "advanced-ai-settings-body");
+		enhanceDetailsDisclosure($("#advanced-login-settings"), "advanced-login-settings-body");
+		enhanceDetailsDisclosure($("#advanced-screening-options"), "advanced-screening-options-body");
 	}
 
 	function applySafeFirstRunDefaults({ announce = false } = {}) {
@@ -47,6 +131,78 @@
 		return changed;
 	}
 
+	function simplifyNavigation() {
+		const nav = $(".nav-list");
+		if (!nav) return;
+		const primary = ["dashboard", "screening", "pipeline", "replies", "settings"];
+		const advanced = ["jobs", "activity"];
+		const labels = {
+			dashboard: "概览",
+			screening: "自动筛选",
+			pipeline: "候选人",
+			replies: "回复草稿",
+			settings: "设置",
+			jobs: "岗位与规则",
+			activity: "任务与审计",
+		};
+
+		for (const [index, view] of primary.entries()) {
+			const item = nav.querySelector(`[data-view="${view}"]`);
+			if (!item) continue;
+			item.classList.remove("product-advanced-nav");
+			const text = item.querySelectorAll("span")[1];
+			if (text) text.textContent = labels[view];
+			const key = item.querySelector("kbd");
+			if (key) key.textContent = String(index + 1);
+			nav.append(item);
+		}
+
+		let toggle = $("#product-advanced-toggle");
+		if (!toggle) {
+			toggle = document.createElement("button");
+			toggle.id = "product-advanced-toggle";
+			toggle.type = "button";
+			toggle.className = "nav-item product-advanced-toggle";
+			toggle.innerHTML = '<span class="nav-icon">⋯</span><span>高级功能</span><kbd>+</kbd>';
+			nav.append(toggle);
+		}
+
+		const expanded = sessionStorage.getItem(ADVANCED_NAV_SESSION_KEY) === "1";
+		const controlledIds = [];
+		toggle.classList.toggle("active", expanded);
+		for (const view of advanced) {
+			const item = nav.querySelector(`[data-view="${view}"]`);
+			if (!item) continue;
+			item.id ||= `product-advanced-${view}`;
+			controlledIds.push(item.id);
+			item.classList.add("product-advanced-nav");
+			item.classList.toggle("hidden", !expanded);
+			const text = item.querySelectorAll("span")[1];
+			if (text) text.textContent = labels[view];
+			const key = item.querySelector("kbd");
+			if (key) key.textContent = "";
+			nav.append(item);
+		}
+		toggle.setAttribute("aria-controls", controlledIds.join(" "));
+		toggle.setAttribute("aria-expanded", String(expanded));
+		toggle.setAttribute("aria-label", expanded ? "收起高级功能" : "展开高级功能");
+		const key = toggle.querySelector("kbd");
+		if (key) key.textContent = expanded ? "−" : "+";
+	}
+
+	function toggleAdvancedNavigation() {
+		const toggle = $("#product-advanced-toggle");
+		if (!toggle) return;
+		const open = sessionStorage.getItem(ADVANCED_NAV_SESSION_KEY) !== "1";
+		sessionStorage.setItem(ADVANCED_NAV_SESSION_KEY, open ? "1" : "0");
+		toggle.classList.toggle("active", open);
+		toggle.setAttribute("aria-expanded", String(open));
+		toggle.setAttribute("aria-label", open ? "收起高级功能" : "展开高级功能");
+		const key = toggle.querySelector("kbd");
+		if (key) key.textContent = open ? "−" : "+";
+		$$('.product-advanced-nav').forEach(item => item.classList.toggle("hidden", !open));
+	}
+
 	function simplifyScreeningChoices() {
 		const grid = $(".screening-grid");
 		const autopilot = $("#autopilot-panel");
@@ -69,6 +225,42 @@
 		grid.append(details);
 		const advancedGrid = details.querySelector(".screening-advanced-grid");
 		for (const panel of secondaryPanels) advancedGrid?.append(panel);
+	}
+
+	function simplifySettings() {
+		const aiForm = $("#ai-form");
+		if (aiForm && !$("#advanced-ai-settings")) {
+			const baseUrl = $("#ai-base-url")?.closest("label");
+			const tuning = $("#ai-temperature")?.closest(".two-col");
+			const saveButton = aiForm.querySelector('button[type="submit"]');
+			if (baseUrl && tuning && saveButton) {
+				const details = document.createElement("details");
+				details.id = "advanced-ai-settings";
+				details.className = "advanced-box product-settings-advanced";
+				details.innerHTML = '<summary>高级 AI 设置</summary><div class="compact-form"></div>';
+				aiForm.insertBefore(details, saveButton);
+				const body = details.querySelector(".compact-form");
+				body?.append(baseUrl, tuning);
+				details.open = $("#ai-provider")?.value === "custom";
+			}
+		}
+
+		const loginButton = $("#login-button");
+		const loginForm = loginButton?.closest(".compact-form");
+		if (loginButton && loginForm && !$("#advanced-login-settings")) {
+			const timeout = $("#login-timeout")?.closest("label");
+			const cookie = $("#cookie-source")?.closest("label");
+			const cdp = $("#force-cdp")?.closest("label");
+			if (timeout && cookie && cdp) {
+				const details = document.createElement("details");
+				details.id = "advanced-login-settings";
+				details.className = "advanced-box product-settings-advanced";
+				details.innerHTML = '<summary>登录高级选项</summary><div class="compact-form"></div>';
+				loginForm.insertBefore(details, loginButton);
+				const body = details.querySelector(".compact-form");
+				body?.append(timeout, cookie, cdp);
+			}
+		}
 	}
 
 	function openSetupTarget(action) {
@@ -98,9 +290,12 @@
 			}, 80);
 			return;
 		}
-		if (action === "candidates") {
-			setView("pipeline");
+		if (action === "screening") {
+			setView("screening");
+			setTimeout(() => $("#autopilot-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+			return;
 		}
+		if (action === "candidates") setView("pipeline");
 	}
 
 	function renderAuthQuality() {
@@ -115,6 +310,30 @@
 		if (description) description.textContent = `登录态不完整（${auth.state || "partial"}）。${recovery}`;
 		const badge = $("#auth-badge");
 		if (badge) setBadge(badge, "需刷新", "manual_review");
+	}
+
+	function renderPrimaryAction(snapshot) {
+		const button = $('[data-action="open-screening"]');
+		if (!button) return;
+		const picker = $(".job-picker");
+		if (picker) picker.classList.toggle("hidden", !state.jobs.length);
+		let action = "screening";
+		let label = "运行 Autopilot";
+		if (!snapshot.aiReady) {
+			action = "ai";
+			label = "配置 AI";
+		} else if (!snapshot.authReady) {
+			action = "auth";
+			label = "登录 BOSS";
+		} else if (!snapshot.modeReady) {
+			action = "mode";
+			label = "启用 Research";
+		} else if (!snapshot.hasCandidates) {
+			action = "first-run";
+			label = "运行 5 人验证";
+		}
+		button.dataset.productPrimaryAction = action;
+		button.textContent = label;
 	}
 
 	function renderAutopilotReadiness(snapshot) {
@@ -142,12 +361,16 @@
 	}
 
 	function renderGuide() {
+		simplifyNavigation();
 		simplifyScreeningChoices();
+		simplifySettings();
+		enhanceAccessibility();
 		if (!state.bootstrap) return;
 		const onboarding = $("#onboarding");
 		if (!onboarding) return;
 		const snapshot = setupState();
 		renderAuthQuality();
+		renderPrimaryAction(snapshot);
 		renderAutopilotReadiness(snapshot);
 		if (snapshot.hasCandidates) {
 			onboarding.classList.add("hidden");
@@ -176,13 +399,36 @@
 				<p style="margin:6px 0 0;color:rgba(255,255,255,.78);font-size:12px;">先验证 5 位候选人的真实链路，确认结果后再扩大范围。</p>
 			</div>
 			<div class="onboarding-steps">
-				${steps.map((step, index) => `<button type="button" class="${step.done ? "done" : ""}" data-guide-action="${step.action}"><i>${index + 1}</i><span>${step.label}</span></button>`).join("")}
+				${steps.map((step, index) => `<button type="button" class="${step.done ? "done" : ""}" data-guide-action="${step.action}" ${!step.done && step.action === next ? 'aria-current="step"' : ""}><i>${index + 1}</i><span>${step.label}</span></button>`).join("")}
 				<button type="button" class="button primary" data-guide-action="${next}">${nextLabel}</button>
 			</div>
 		`;
 	}
 
+	document.addEventListener("change", event => {
+		if (!event.target?.matches?.("#ai-provider")) return;
+		const advanced = $("#advanced-ai-settings");
+		if (advanced && event.target.value === "custom") advanced.open = true;
+	});
+
 	document.addEventListener("click", event => {
+		if (event.target.closest("#mobile-menu") || event.target.closest(".nav-item[data-view]")) {
+			setTimeout(syncMobileNavigation, 0);
+		}
+		const advancedToggle = event.target.closest("#product-advanced-toggle");
+		if (advancedToggle) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			toggleAdvancedNavigation();
+			return;
+		}
+		const primary = event.target.closest('[data-product-primary-action]');
+		if (primary) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			openSetupTarget(primary.dataset.productPrimaryAction || "screening");
+			return;
+		}
 		const button = event.target.closest("[data-guide-action]");
 		if (!button) return;
 		event.preventDefault();
