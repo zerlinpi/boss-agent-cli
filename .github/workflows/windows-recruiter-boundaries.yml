@@ -65,13 +65,15 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Check recruiter guide JavaScript
+      - name: Check recruiter extension JavaScript
         shell: pwsh
         run: |
-          Get-ChildItem "src/boss_agent_cli/web/assets/guided_*.js" | ForEach-Object {
-            node --check $_.FullName
-            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
-          }
+          Get-ChildItem "src/boss_agent_cli/web/assets/*.js" |
+            Where-Object { $_.Name -like "guided_*.js" -or $_.Name -like "product_*.js" } |
+            ForEach-Object {
+              node --check $_.FullName
+              if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
+            }
 
       - name: Run Windows recruiter boundary regressions
         run: >-
@@ -92,6 +94,8 @@ jobs:
           tests/test_recruiter_web_guided_navigation.py
           tests/test_recruiter_web_feedback.py
           tests/test_recruiter_web_autopilot.py
+          tests/test_recruiter_web_visual_design.py
+          tests/test_recruiter_web_product_patterns.py
 
       - name: Import recruiter Web surface
         run: >-
